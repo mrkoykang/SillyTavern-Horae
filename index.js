@@ -3,7 +3,7 @@
  * 基于时间锚点的AI记忆增强系统
  * 
  * 作者: SenriYuki
- * 版本: 1.5.6
+ * 版本: 1.6.0
  */
 
 import { renderExtensionTemplateAsync, getContext, extension_settings } from '/scripts/extensions.js';
@@ -19,7 +19,7 @@ import { calculateRelativeTime, calculateDetailedRelativeTime, formatRelativeTim
 const EXTENSION_NAME = 'horae';
 const EXTENSION_FOLDER = `third-party/SillyTavern-Horae`;
 const TEMPLATE_PATH = `${EXTENSION_FOLDER}/assets/templates`;
-const VERSION = '1.5.6';
+const VERSION = '1.6.0';
 
 // 配套正则规则（自动注入ST原生正则系统）
 const HORAE_REGEX_RULES = [
@@ -124,6 +124,8 @@ const DEFAULT_SETTINGS = {
     autoSummaryApiUrl: '',          // 独立API端点地址（OpenAI兼容）
     autoSummaryApiKey: '',          // 独立API密钥
     autoSummaryModel: '',           // 独立API模型名称
+    // 教学
+    tutorialCompleted: false,       // 新用户导航教学是否已完成
 };
 
 // ============================================
@@ -203,11 +205,14 @@ async function initNavbarFunction() {
 /**
  * 加载设置
  */
+let _isFirstTimeUser = false;
 function loadSettings() {
     if (extension_settings[EXTENSION_NAME]) {
         settings = { ...DEFAULT_SETTINGS, ...extension_settings[EXTENSION_NAME] };
     } else {
+        _isFirstTimeUser = true;
         extension_settings[EXTENSION_NAME] = { ...DEFAULT_SETTINGS };
+        settings = { ...DEFAULT_SETTINGS };
     }
 }
 
@@ -1492,7 +1497,7 @@ function updateTimelineSelectedCount() {
 function showCompressModeDialog(eventCount, msgRange) {
     return new Promise(resolve => {
         const modal = document.createElement('div');
-        modal.className = 'horae-modal' + (settings.themeMode === 'light' ? ' horae-light' : '');
+        modal.className = 'horae-modal' + (isLightMode() ? ' horae-light' : '');
         modal.innerHTML = `
             <div class="horae-modal-content" style="max-width: 420px;">
                 <div class="horae-modal-header"><span>压缩模式</span></div>
@@ -1609,7 +1614,7 @@ async function compressSelectedTimelineEvents() {
     };
 
     const overlay = document.createElement('div');
-    overlay.className = 'horae-progress-overlay' + (settings.themeMode === 'light' ? ' horae-light' : '');
+    overlay.className = 'horae-progress-overlay' + (isLightMode() ? ' horae-light' : '');
     overlay.innerHTML = `
         <div class="horae-progress-container">
             <div class="horae-progress-title">AI 压缩中...</div>
@@ -1693,10 +1698,15 @@ async function compressSelectedTimelineEvents() {
         };
         firstMsg.horae_meta.autoSummaries.push(summaryEntry);
         
-        // 标记原始事件为已压缩（不删除）
+        // 标记原始事件为已压缩（不删除），兼容旧 meta.event 单数格式
         for (const e of events) {
             const meta = chat[e.msgIdx]?.horae_meta;
-            if (meta?.events?.[e.evtIdx]) {
+            if (!meta) continue;
+            if (meta.event && !meta.events) {
+                meta.events = [meta.event];
+                delete meta.event;
+            }
+            if (meta.events?.[e.evtIdx]) {
                 meta.events[e.evtIdx]._compressedBy = summaryId;
             }
         }
@@ -2217,6 +2227,17 @@ function updateRelationshipDisplay() {
             if (!confirm(`确定删除 ${rel.from} → ${rel.to} 的关系？`)) return;
             rels.splice(idx, 1);
             horaeManager.setRelationships(rels);
+            // 同步清理各消息中的同方向关系数据，防止 rebuildRelationships 复活
+            const chat = horaeManager.getChat();
+            for (let i = 1; i < chat.length; i++) {
+                const meta = chat[i]?.horae_meta;
+                if (!meta?.relationships?.length) continue;
+                const before = meta.relationships.length;
+                meta.relationships = meta.relationships.filter(r => !(r.from === rel.from && r.to === rel.to));
+                if (meta.relationships.length !== before) {
+                    injectHoraeTagToMessage(i, meta);
+                }
+            }
             await getContext().saveChat();
             updateRelationshipDisplay();
             showToast('关系已删除', 'info');
@@ -2795,13 +2816,17 @@ function openNpcEditModal(npcName) {
         const chat = horaeManager.getChat();
         for (let i = 0; i < chat.length; i++) {
             const meta = chat[i].horae_meta;
-            if (meta?.npcs?.[npcName]) {
+            if (!meta) continue;
+            let changed = false;
+            if (meta.npcs?.[npcName]) {
                 delete meta.npcs[npcName];
+                changed = true;
             }
-            // 同时清除好感度中的相关记录
-            if (meta?.affection?.[npcName]) {
+            if (meta.affection?.[npcName]) {
                 delete meta.affection[npcName];
+                changed = true;
             }
+            if (changed) injectHoraeTagToMessage(i, meta);
         }
         
         // 从星标列表移除
@@ -3042,7 +3067,7 @@ function preventModalBubble() {
 
     targets.forEach(modal => {
         // 继承主题模式
-        if (settings.themeMode === 'light') modal.classList.add('horae-light');
+        if (isLightMode()) modal.classList.add('horae-light');
 
         ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(evType => {
             modal.addEventListener(evType, (e) => {
@@ -3490,7 +3515,7 @@ function showTableContextMenu(e, tableIndex, row, col, scope = 'local') {
     
     const menu = document.createElement('div');
     menu.className = 'horae-context-menu';
-    if (settings.themeMode === 'light') menu.classList.add('horae-light');
+    if (isLightMode()) menu.classList.add('horae-light');
     menu.innerHTML = menuItems;
     
     // 获取位置
@@ -4094,11 +4119,14 @@ async function deleteSelectedItems() {
     for (let i = 0; i < chat.length; i++) {
         const meta = chat[i].horae_meta;
         if (meta && meta.items) {
+            let changed = false;
             for (const itemName of itemsToDelete) {
                 if (meta.items[itemName]) {
                     delete meta.items[itemName];
+                    changed = true;
                 }
             }
+            if (changed) injectHoraeTagToMessage(i, meta);
         }
     }
     
@@ -4470,14 +4498,34 @@ function updateTokenCounter() {
 }
 
 /**
- * 滚动到指定消息
+ * 滚动到指定消息（支持折叠/懒加载的消息展开跳转）
  */
-function scrollToMessage(messageId) {
-    const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
+async function scrollToMessage(messageId) {
+    let messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
     if (messageEl) {
         messageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
         messageEl.classList.add('horae-highlight');
         setTimeout(() => messageEl.classList.remove('horae-highlight'), 2000);
+        return;
+    }
+    // 消息不在 DOM 中（被酒馆折叠/懒加载），提示用户展开
+    if (!confirm(`目标消息 #${messageId} 距离较远，已被折叠无法直接跳转。\n是否展开并跳转到该消息？`)) return;
+    try {
+        const slashModule = await import('/scripts/slash-commands.js');
+        const exec = slashModule.executeSlashCommandsWithOptions;
+        await exec(`/go ${messageId}`);
+        await new Promise(r => setTimeout(r, 300));
+        messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
+        if (messageEl) {
+            messageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            messageEl.classList.add('horae-highlight');
+            setTimeout(() => messageEl.classList.remove('horae-highlight'), 2000);
+        } else {
+            showToast(`无法展开消息 #${messageId}，请手动滚动查找`, 'warning');
+        }
+    } catch (err) {
+        console.warn('[Horae] 跳转失败:', err);
+        showToast(`跳转失败: ${err.message || '未知错误'}`, 'error');
     }
 }
 
@@ -4554,11 +4602,18 @@ function resolveTheme(mode) {
     return null;
 }
 
+function isLightMode() {
+    const mode = settings.themeMode || 'dark';
+    if (mode === 'light') return true;
+    const theme = resolveTheme(mode);
+    return !!(theme && theme.isLight);
+}
+
 /** 应用主题模式（dark / light / 内置预设 / custom-{index}） */
 function applyThemeMode() {
     const mode = settings.themeMode || 'dark';
-    const isLight = mode === 'light';
     const theme = resolveTheme(mode);
+    const isLight = mode === 'light' || !!(theme && theme.isLight);
 
     // 切换 horae-light 类
     const targets = [
@@ -4721,6 +4776,498 @@ function deleteCustomTheme(index) {
     showToast('美化已删除', 'info');
 }
 
+// ============================================
+// 自助美化工具 (Theme Designer)
+// ============================================
+
+function _tdHslToHex(h, s, l) {
+    s /= 100; l /= 100;
+    const a = s * Math.min(l, 1 - l);
+    const f = n => {
+        const k = (n + h / 30) % 12;
+        const c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+        return Math.round(255 * Math.max(0, Math.min(1, c))).toString(16).padStart(2, '0');
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+function _tdHexToHsl(hex) {
+    hex = hex.replace('#', '');
+    if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+    const r = parseInt(hex.slice(0, 2), 16) / 255;
+    const g = parseInt(hex.slice(2, 4), 16) / 255;
+    const b = parseInt(hex.slice(4, 6), 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0, l = (max + min) / 2;
+    if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+        else if (max === g) h = ((b - r) / d + 2) / 6;
+        else h = ((r - g) / d + 4) / 6;
+    }
+    return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
+}
+
+function _tdHexToRgb(hex) {
+    hex = hex.replace('#', '');
+    return { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16), b: parseInt(hex.slice(4, 6), 16) };
+}
+
+function _tdParseColorHsl(str) {
+    if (!str) return { h: 265, s: 84, l: 58 };
+    str = str.trim();
+    if (str.startsWith('#')) return _tdHexToHsl(str);
+    const hm = str.match(/hsla?\(\s*(\d+)\s*,\s*(\d+)%?\s*,\s*(\d+)%?/);
+    if (hm) return { h: +hm[1], s: +hm[2], l: +hm[3] };
+    const rm = str.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+    if (rm) return _tdHexToHsl('#' + [rm[1], rm[2], rm[3]].map(n => parseInt(n).toString(16).padStart(2, '0')).join(''));
+    return { h: 265, s: 84, l: 58 };
+}
+
+function _tdGenerateVars(hue, sat, brightness, accentHex, colorLight) {
+    const isDark = brightness <= 50;
+    const s = Math.max(15, sat);
+    const pL = colorLight || 50;
+    const v = {};
+    if (isDark) {
+        const bgL = 6 + (brightness / 50) * 10;
+        v['--horae-primary'] = _tdHslToHex(hue, s, pL);
+        v['--horae-primary-light'] = _tdHslToHex(hue, Math.max(s - 12, 25), Math.min(pL + 16, 90));
+        v['--horae-primary-dark'] = _tdHslToHex(hue, Math.min(s + 5, 100), Math.max(pL - 14, 10));
+        v['--horae-bg'] = _tdHslToHex(hue, Math.min(s, 22), bgL);
+        v['--horae-bg-secondary'] = _tdHslToHex(hue, Math.min(s, 16), bgL + 5);
+        v['--horae-bg-hover'] = _tdHslToHex(hue, Math.min(s, 14), bgL + 10);
+        v['--horae-border'] = `rgba(255,255,255,0.1)`;
+        v['--horae-text'] = _tdHslToHex(hue, 8, 90);
+        v['--horae-text-muted'] = _tdHslToHex(hue, 6, 63);
+        v['--horae-shadow'] = `0 4px 20px rgba(0,0,0,0.3)`;
+    } else {
+        const bgL = 92 + ((brightness - 50) / 50) * 5;
+        v['--horae-primary'] = _tdHslToHex(hue, s, pL);
+        v['--horae-primary-light'] = _tdHslToHex(hue, s, Math.max(pL - 8, 10));
+        v['--horae-primary-dark'] = _tdHslToHex(hue, Math.max(s - 12, 25), Math.min(pL + 14, 85));
+        v['--horae-bg'] = _tdHslToHex(hue, Math.min(s, 12), bgL);
+        v['--horae-bg-secondary'] = _tdHslToHex(hue, Math.min(s, 10), bgL - 4);
+        v['--horae-bg-hover'] = _tdHslToHex(hue, Math.min(s, 10), bgL - 8);
+        v['--horae-border'] = `rgba(0,0,0,0.12)`;
+        v['--horae-text'] = _tdHslToHex(hue, 8, 12);
+        v['--horae-text-muted'] = _tdHslToHex(hue, 5, 38);
+        v['--horae-shadow'] = `0 4px 20px rgba(0,0,0,0.08)`;
+    }
+    if (accentHex) v['--horae-accent'] = accentHex;
+    v['--horae-success'] = '#10b981';
+    v['--horae-warning'] = '#f59e0b';
+    v['--horae-danger'] = '#ef4444';
+    v['--horae-info'] = '#3b82f6';
+    return v;
+}
+
+function _tdBuildImageCSS(images, opacities, bgHex, drawerBg) {
+    const parts = [];
+    if (images.header) {
+        parts.push(`#horae_drawer .drawer-header { background: url(${images.header}) center/cover no-repeat !important; }`);
+    }
+    // 抽屉背景
+    const bodyBg = drawerBg || bgHex;
+    if (images.body && bodyBg) {
+        const c = _tdHexToRgb(bodyBg);
+        const a = (1 - (opacities.body || 30) / 100).toFixed(2);
+        parts.push(`.horae-tab-contents { background: linear-gradient(rgba(${c.r},${c.g},${c.b},${a}), rgba(${c.r},${c.g},${c.b},${a})), url(${images.body}) center/cover no-repeat !important; }`);
+    } else if (drawerBg) {
+        parts.push(`.horae-tab-contents { background-color: ${drawerBg} !important; }`);
+    }
+    // 底部消息栏
+    if (images.panel && bgHex) {
+        const c = _tdHexToRgb(bgHex);
+        const a = (1 - (opacities.panel || 30) / 100).toFixed(2);
+        parts.push(`.horae-message-panel { background: linear-gradient(rgba(${c.r},${c.g},${c.b},${a}), rgba(${c.r},${c.g},${c.b},${a})), url(${images.panel}) center/cover no-repeat !important; }`);
+        parts.push(`.horae-message-panel .horae-panel-content { background: rgba(${c.r},${c.g},${c.b},0.80) !important; }`);
+    }
+    return parts.join('\n');
+}
+
+function openThemeDesigner() {
+    document.querySelector('.horae-theme-designer')?.remove();
+
+    const drawer = document.getElementById('horae_drawer');
+    const cs = drawer ? getComputedStyle(drawer) : null;
+    const priStr = cs?.getPropertyValue('--horae-primary').trim() || '#7c3aed';
+    const accStr = cs?.getPropertyValue('--horae-accent').trim() || '#f59e0b';
+    const initHsl = _tdParseColorHsl(priStr);
+
+    // 尝试从当前自定义主题恢复全部设置
+    let savedImages = { header: '', body: '', panel: '' };
+    let savedImgOp = { header: 50, body: 30, panel: 30 };
+    let savedName = '', savedAuthor = '', savedDrawerBg = '';
+    let savedDesigner = null;
+    const curTheme = resolveTheme(settings.themeMode || 'dark');
+    if (curTheme) {
+        if (curTheme.images) savedImages = { ...savedImages, ...curTheme.images };
+        if (curTheme.imageOpacity) savedImgOp = { ...savedImgOp, ...curTheme.imageOpacity };
+        if (curTheme.name) savedName = curTheme.name;
+        if (curTheme.author) savedAuthor = curTheme.author;
+        if (curTheme.drawerBg) savedDrawerBg = curTheme.drawerBg;
+        if (curTheme._designerState) savedDesigner = curTheme._designerState;
+    }
+
+    const st = {
+        hue: savedDesigner?.hue ?? initHsl.h,
+        sat: savedDesigner?.sat ?? initHsl.s,
+        colorLight: savedDesigner?.colorLight ?? initHsl.l,
+        bright: savedDesigner?.bright ?? ((isLightMode()) ? 70 : 25),
+        accent: savedDesigner?.accent ?? (accStr.startsWith('#') ? accStr : '#f59e0b'),
+        images: savedImages,
+        imgOp: savedImgOp,
+        drawerBg: savedDrawerBg,
+        overrides: {}
+    };
+
+    const abortCtrl = new AbortController();
+    const sig = abortCtrl.signal;
+
+    const imgHtml = (key, label) => {
+        const url = st.images[key] || '';
+        const op = st.imgOp[key];
+        return `<div class="htd-img-group">
+        <div class="htd-img-label">${label}</div>
+        <input type="text" id="htd-img-${key}" class="htd-input" placeholder="输入图片 URL..." value="${escapeHtml(url)}">
+        <div class="htd-img-ctrl"><span>可见度 <em id="htd-imgop-${key}">${op}</em>%</span>
+            <input type="range" class="htd-slider" id="htd-imgsl-${key}" min="5" max="100" value="${op}"></div>
+        <img id="htd-imgpv-${key}" class="htd-img-preview" ${url ? `src="${escapeHtml(url)}"` : 'style="display:none;"'}>
+    </div>`;
+    };
+
+    const modal = document.createElement('div');
+    modal.className = 'horae-modal horae-theme-designer' + (isLightMode() ? ' horae-light' : '');
+    modal.innerHTML = `
+    <div class="horae-modal-content htd-content">
+        <div class="htd-header"><i class="fa-solid fa-paint-roller"></i> 自助美化工具</div>
+        <div class="htd-body">
+            <div class="htd-section">
+                <div class="htd-section-title">快速调色</div>
+                <div class="htd-field">
+                    <span class="htd-label">主题色相</span>
+                    <div class="htd-hue-bar" id="htd-hue-bar"><div class="htd-hue-ind" id="htd-hue-ind"></div></div>
+                </div>
+                <div class="htd-field">
+                    <span class="htd-label">饱和度 <em id="htd-satv">${st.sat}</em>%</span>
+                    <input type="range" class="htd-slider" id="htd-sat" min="10" max="100" value="${st.sat}">
+                </div>
+                <div class="htd-field">
+                    <span class="htd-label">亮度 <em id="htd-clv">${st.colorLight}</em></span>
+                    <input type="range" class="htd-slider htd-colorlight" id="htd-cl" min="15" max="85" value="${st.colorLight}">
+                </div>
+                <div class="htd-field">
+                    <span class="htd-label">日夜模式 <em id="htd-briv">${st.bright <= 50 ? '夜' : '日'}</em></span>
+                    <input type="range" class="htd-slider htd-daynight" id="htd-bri" min="0" max="100" value="${st.bright}">
+                </div>
+                <div class="htd-field">
+                    <span class="htd-label">强调色</span>
+                    <div class="htd-color-row">
+                        <input type="color" id="htd-accent" value="${st.accent}" class="htd-cpick">
+                        <span class="htd-hex" id="htd-accent-hex">${st.accent}</span>
+                    </div>
+                </div>
+                <div class="htd-swatches" id="htd-swatches"></div>
+            </div>
+
+            <div class="htd-section">
+                <div class="htd-section-title htd-toggle" id="htd-fine-t">
+                    <i class="fa-solid fa-sliders"></i> 精细调色
+                    <i class="fa-solid fa-chevron-down htd-arrow"></i>
+                </div>
+                <div id="htd-fine-body" style="display:none;"></div>
+            </div>
+
+            <div class="htd-section">
+                <div class="htd-section-title htd-toggle" id="htd-img-t">
+                    <i class="fa-solid fa-image"></i> 装饰图片
+                    <i class="fa-solid fa-chevron-down htd-arrow"></i>
+                </div>
+                <div id="htd-img-body" style="display:none;">
+                    ${imgHtml('header', '抽屉头部')}
+                    ${imgHtml('body', '抽屉背景')}
+                    <div class="htd-img-group">
+                        <div class="htd-img-label">抽屉背景底色</div>
+                        <div class="htd-field">
+                            <span class="htd-label"><em id="htd-dbg-hex">${st.drawerBg || '跟随主题'}</em></span>
+                            <div class="htd-color-row">
+                                <input type="color" id="htd-dbg" value="${st.drawerBg || '#2d2d3c'}" class="htd-cpick">
+                                <button class="horae-btn" id="htd-dbg-clear" style="font-size:10px;padding:2px 8px;">清除</button>
+                            </div>
+                        </div>
+                    </div>
+                    ${imgHtml('panel', '底部消息栏')}
+                </div>
+            </div>
+
+            <div class="htd-section htd-save-sec">
+                <div class="htd-field"><span class="htd-label">名称</span><input type="text" id="htd-name" class="htd-input" placeholder="我的美化" value="${escapeHtml(savedName)}"></div>
+                <div class="htd-field"><span class="htd-label">作者</span><input type="text" id="htd-author" class="htd-input" placeholder="匿名" value="${escapeHtml(savedAuthor)}"></div>
+                <div class="htd-btn-row">
+                    <button class="horae-btn primary" id="htd-save"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                    <button class="horae-btn" id="htd-export"><i class="fa-solid fa-file-export"></i> 导出</button>
+                    <button class="horae-btn" id="htd-reset"><i class="fa-solid fa-rotate-left"></i> 重置</button>
+                    <button class="horae-btn" id="htd-cancel"><i class="fa-solid fa-xmark"></i> 取消</button>
+                </div>
+            </div>
+        </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('.htd-content').addEventListener('click', e => e.stopPropagation(), { signal: sig });
+
+    const hueBar = modal.querySelector('#htd-hue-bar');
+    const hueInd = modal.querySelector('#htd-hue-ind');
+    hueInd.style.left = `${(st.hue / 360) * 100}%`;
+    hueInd.style.background = `hsl(${st.hue}, 100%, 50%)`;
+
+    // ---- Live preview ----
+    function update() {
+        const base = _tdGenerateVars(st.hue, st.sat, st.bright, st.accent, st.colorLight);
+        const vars = { ...base, ...st.overrides };
+
+        let previewEl = document.getElementById('horae-designer-preview');
+        if (!previewEl) { previewEl = document.createElement('style'); previewEl.id = 'horae-designer-preview'; document.head.appendChild(previewEl); }
+        const cssLines = Object.entries(vars).map(([k, v]) => `  ${k}: ${v} !important;`).join('\n');
+        previewEl.textContent = `#horae_drawer, .horae-message-panel, .horae-modal, .horae-context-menu, .horae-progress-overlay {\n${cssLines}\n}`;
+
+        const isLight = st.bright > 50;
+        drawer?.classList.toggle('horae-light', isLight);
+        modal.classList.toggle('horae-light', isLight);
+        document.querySelectorAll('.horae-message-panel').forEach(p => p.classList.toggle('horae-light', isLight));
+
+        let imgEl = document.getElementById('horae-designer-images');
+        const imgCSS = _tdBuildImageCSS(st.images, st.imgOp, vars['--horae-bg'], st.drawerBg);
+        if (imgCSS) {
+            if (!imgEl) { imgEl = document.createElement('style'); imgEl.id = 'horae-designer-images'; document.head.appendChild(imgEl); }
+            imgEl.textContent = imgCSS;
+        } else { imgEl?.remove(); }
+
+        const sw = modal.querySelector('#htd-swatches');
+        const swKeys = ['--horae-primary', '--horae-primary-light', '--horae-primary-dark', '--horae-accent',
+            '--horae-bg', '--horae-bg-secondary', '--horae-bg-hover', '--horae-text', '--horae-text-muted'];
+        sw.innerHTML = swKeys.map(k =>
+            `<div class="htd-swatch" style="background:${vars[k]}" title="${k.replace('--horae-', '')}: ${vars[k]}"></div>`
+        ).join('');
+
+        const fineBody = modal.querySelector('#htd-fine-body');
+        if (fineBody.style.display !== 'none') {
+            fineBody.querySelectorAll('.htd-fine-cpick').forEach(inp => {
+                const vn = inp.dataset.vn;
+                if (!st.overrides[vn] && vars[vn]?.startsWith('#')) {
+                    inp.value = vars[vn];
+                    inp.nextElementSibling.textContent = vars[vn];
+                }
+            });
+        }
+    }
+
+    // ---- Hue bar drag ----
+    let hueDrag = false;
+    function onHue(e) {
+        const r = hueBar.getBoundingClientRect();
+        const cx = e.touches ? e.touches[0].clientX : e.clientX;
+        const x = Math.max(0, Math.min(r.width, cx - r.left));
+        st.hue = Math.round((x / r.width) * 360);
+        hueInd.style.left = `${(st.hue / 360) * 100}%`;
+        hueInd.style.background = `hsl(${st.hue}, 100%, 50%)`;
+        st.overrides = {};
+        update();
+    }
+    hueBar.addEventListener('mousedown', e => { hueDrag = true; onHue(e); }, { signal: sig });
+    hueBar.addEventListener('touchstart', e => { hueDrag = true; onHue(e); }, { signal: sig, passive: true });
+    document.addEventListener('mousemove', e => { if (hueDrag) onHue(e); }, { signal: sig });
+    document.addEventListener('touchmove', e => { if (hueDrag) onHue(e); }, { signal: sig, passive: true });
+    document.addEventListener('mouseup', () => hueDrag = false, { signal: sig });
+    document.addEventListener('touchend', () => hueDrag = false, { signal: sig });
+
+    // ---- Sliders ----
+    modal.querySelector('#htd-sat').addEventListener('input', function () {
+        st.sat = +this.value; modal.querySelector('#htd-satv').textContent = st.sat;
+        st.overrides = {};
+        update();
+    }, { signal: sig });
+
+    modal.querySelector('#htd-cl').addEventListener('input', function () {
+        st.colorLight = +this.value; modal.querySelector('#htd-clv').textContent = st.colorLight;
+        st.overrides = {};
+        update();
+    }, { signal: sig });
+
+    modal.querySelector('#htd-bri').addEventListener('input', function () {
+        st.bright = +this.value;
+        modal.querySelector('#htd-briv').textContent = st.bright <= 50 ? '夜' : '日';
+        st.overrides = {};
+        update();
+    }, { signal: sig });
+
+    modal.querySelector('#htd-accent').addEventListener('input', function () {
+        st.accent = this.value;
+        modal.querySelector('#htd-accent-hex').textContent = this.value;
+        update();
+    }, { signal: sig });
+
+    // ---- Collapsible ----
+    modal.querySelector('#htd-fine-t').addEventListener('click', () => {
+        const body = modal.querySelector('#htd-fine-body');
+        const show = body.style.display === 'none';
+        body.style.display = show ? 'block' : 'none';
+        if (show) buildFine();
+    }, { signal: sig });
+    modal.querySelector('#htd-img-t').addEventListener('click', () => {
+        const body = modal.querySelector('#htd-img-body');
+        body.style.display = body.style.display === 'none' ? 'block' : 'none';
+    }, { signal: sig });
+
+    // ---- Fine pickers ----
+    const FINE_VARS = [
+        ['--horae-primary', '主色调'], ['--horae-primary-light', '主色调亮'], ['--horae-primary-dark', '主色调暗'],
+        ['--horae-accent', '强调色'], ['--horae-success', '成功'], ['--horae-warning', '警告'],
+        ['--horae-danger', '危险'], ['--horae-info', '信息'],
+        ['--horae-bg', '背景'], ['--horae-bg-secondary', '次背景'], ['--horae-bg-hover', '悬停背景'],
+        ['--horae-text', '文字'], ['--horae-text-muted', '次要文字']
+    ];
+    function buildFine() {
+        const c = modal.querySelector('#htd-fine-body');
+        const base = _tdGenerateVars(st.hue, st.sat, st.bright, st.accent, st.colorLight);
+        const vars = { ...base, ...st.overrides };
+        c.innerHTML = FINE_VARS.map(([vn, label]) => {
+            const val = vars[vn] || '#888888';
+            const hex = val.startsWith('#') ? val : '#888888';
+            return `<div class="htd-fine-row"><span>${label}</span>
+                <input type="color" class="htd-fine-cpick" data-vn="${vn}" value="${hex}">
+                <span class="htd-fine-hex">${val}</span></div>`;
+        }).join('');
+        c.querySelectorAll('.htd-fine-cpick').forEach(inp => {
+            inp.addEventListener('input', () => {
+                st.overrides[inp.dataset.vn] = inp.value;
+                inp.nextElementSibling.textContent = inp.value;
+                update();
+            }, { signal: sig });
+        });
+    }
+
+    // ---- Image inputs ----
+    ['header', 'body', 'panel'].forEach(key => {
+        const urlIn = modal.querySelector(`#htd-img-${key}`);
+        const opSl = modal.querySelector(`#htd-imgsl-${key}`);
+        const pv = modal.querySelector(`#htd-imgpv-${key}`);
+        const opV = modal.querySelector(`#htd-imgop-${key}`);
+        pv.onerror = () => pv.style.display = 'none';
+        pv.onload = () => pv.style.display = 'block';
+        urlIn.addEventListener('input', () => {
+            st.images[key] = urlIn.value.trim();
+            if (st.images[key]) pv.src = st.images[key]; else pv.style.display = 'none';
+            update();
+        }, { signal: sig });
+        opSl.addEventListener('input', () => {
+            st.imgOp[key] = +opSl.value;
+            opV.textContent = opSl.value;
+            update();
+        }, { signal: sig });
+    });
+
+    // ---- Drawer bg color ----
+    modal.querySelector('#htd-dbg').addEventListener('input', function () {
+        st.drawerBg = this.value;
+        modal.querySelector('#htd-dbg-hex').textContent = this.value;
+        update();
+    }, { signal: sig });
+    modal.querySelector('#htd-dbg-clear').addEventListener('click', () => {
+        st.drawerBg = '';
+        modal.querySelector('#htd-dbg-hex').textContent = '跟随主题';
+        update();
+    }, { signal: sig });
+
+    // ---- Close ----
+    function closeDesigner() {
+        abortCtrl.abort();
+        document.getElementById('horae-designer-preview')?.remove();
+        document.getElementById('horae-designer-images')?.remove();
+        modal.remove();
+        applyThemeMode();
+    }
+    modal.querySelector('#htd-cancel').addEventListener('click', closeDesigner, { signal: sig });
+    modal.addEventListener('click', e => { if (e.target === modal) closeDesigner(); }, { signal: sig });
+
+    // ---- Save ----
+    modal.querySelector('#htd-save').addEventListener('click', () => {
+        const name = modal.querySelector('#htd-name').value.trim() || '自定义美化';
+        const author = modal.querySelector('#htd-author').value.trim() || '';
+        const base = _tdGenerateVars(st.hue, st.sat, st.bright, st.accent, st.colorLight);
+        const vars = { ...base, ...st.overrides };
+        const theme = {
+            name, author, version: '1.0', variables: vars,
+            images: { ...st.images }, imageOpacity: { ...st.imgOp },
+            drawerBg: st.drawerBg,
+            isLight: st.bright > 50,
+            _designerState: { hue: st.hue, sat: st.sat, colorLight: st.colorLight, bright: st.bright, accent: st.accent },
+            css: _tdBuildImageCSS(st.images, st.imgOp, vars['--horae-bg'], st.drawerBg)
+        };
+        if (!settings.customThemes) settings.customThemes = [];
+        settings.customThemes.push(theme);
+        settings.themeMode = `custom-${settings.customThemes.length - 1}`;
+        abortCtrl.abort();
+        document.getElementById('horae-designer-preview')?.remove();
+        document.getElementById('horae-designer-images')?.remove();
+        modal.remove();
+        saveSettings();
+        applyThemeMode();
+        refreshThemeSelector();
+        showToast(`美化「${name}」已保存并应用`, 'success');
+    }, { signal: sig });
+
+    // ---- Export ----
+    modal.querySelector('#htd-export').addEventListener('click', () => {
+        const name = modal.querySelector('#htd-name').value.trim() || '自定义美化';
+        const author = modal.querySelector('#htd-author').value.trim() || '';
+        const base = _tdGenerateVars(st.hue, st.sat, st.bright, st.accent, st.colorLight);
+        const vars = { ...base, ...st.overrides };
+        const theme = {
+            name, author, version: '1.0', variables: vars,
+            images: { ...st.images }, imageOpacity: { ...st.imgOp },
+            drawerBg: st.drawerBg,
+            isLight: st.bright > 50,
+            _designerState: { hue: st.hue, sat: st.sat, colorLight: st.colorLight, bright: st.bright, accent: st.accent },
+            css: _tdBuildImageCSS(st.images, st.imgOp, vars['--horae-bg'], st.drawerBg)
+        };
+        const blob = new Blob([JSON.stringify(theme, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `horae-${name}.json`; a.click();
+        URL.revokeObjectURL(url);
+        showToast('美化已导出为 JSON', 'info');
+    }, { signal: sig });
+
+    // ---- Reset ----
+    modal.querySelector('#htd-reset').addEventListener('click', () => {
+        st.hue = 265; st.sat = 84; st.colorLight = 50; st.bright = 25; st.accent = '#f59e0b';
+        st.overrides = {}; st.drawerBg = '';
+        st.images = { header: '', body: '', panel: '' };
+        st.imgOp = { header: 50, body: 30, panel: 30 };
+        hueInd.style.left = `${(265 / 360) * 100}%`;
+        hueInd.style.background = `hsl(265, 100%, 50%)`;
+        modal.querySelector('#htd-sat').value = 84; modal.querySelector('#htd-satv').textContent = '84';
+        modal.querySelector('#htd-cl').value = 50; modal.querySelector('#htd-clv').textContent = '50';
+        modal.querySelector('#htd-bri').value = 25; modal.querySelector('#htd-briv').textContent = '夜';
+        modal.querySelector('#htd-accent').value = '#f59e0b';
+        modal.querySelector('#htd-accent-hex').textContent = '#f59e0b';
+        modal.querySelector('#htd-dbg-hex').textContent = '跟随主题';
+        ['header', 'body', 'panel'].forEach(k => {
+            const u = modal.querySelector(`#htd-img-${k}`); if (u) u.value = '';
+            const s = modal.querySelector(`#htd-imgsl-${k}`); if (s) s.value = k === 'header' ? 50 : 30;
+            const v = modal.querySelector(`#htd-imgop-${k}`); if (v) v.textContent = k === 'header' ? '50' : '30';
+            const p = modal.querySelector(`#htd-imgpv-${k}`); if (p) p.style.display = 'none';
+        });
+        const fBody = modal.querySelector('#htd-fine-body');
+        if (fBody.style.display !== 'none') buildFine();
+        update();
+        showToast('已重置为默认', 'info');
+    }, { signal: sig });
+
+    update();
+}
+
 /**
  * 为消息添加元数据面板
  */
@@ -4793,7 +5340,7 @@ function addMessagePanel(messageEl, messageIndex) {
             panelEl.style.maxWidth = `${w}%`;
         }
         // 继承主题模式
-        if (settings.themeMode === 'light' && panelEl) {
+        if (isLightMode() && panelEl) {
             panelEl.classList.add('horae-light');
         }
     }
@@ -4869,8 +5416,8 @@ function buildPanelMoodEditable(meta) {
 function buildPanelContent(messageIndex, meta) {
     const costumeRows = Object.entries(meta.costumes || {}).map(([char, costume]) => `
         <div class="horae-editor-row">
-            <input type="text" class="char-input" value="${char}" placeholder="角色名">
-            <input type="text" value="${costume}" placeholder="服装描述">
+            <input type="text" class="char-input" value="${escapeHtml(char)}" placeholder="角色名">
+            <input type="text" value="${escapeHtml(costume)}" placeholder="服装描述">
             <button class="delete-btn"><i class="fa-solid fa-xmark"></i></button>
         </div>
     `).join('');
@@ -4879,14 +5426,14 @@ function buildPanelContent(messageIndex, meta) {
     const itemRows = Object.entries(meta.items || {}).map(([name, info]) => {
         return `
             <div class="horae-editor-row horae-item-row">
-                <input type="text" class="item-icon" value="${info.icon || ''}" placeholder="📦" maxlength="2">
-                <input type="text" class="item-name" value="${name}" placeholder="物品名">
-                <input type="text" class="item-holder" value="${info.holder || ''}" placeholder="持有者">
-                <input type="text" class="item-location" value="${info.location || ''}" placeholder="位置">
+                <input type="text" class="item-icon" value="${escapeHtml(info.icon || '')}" placeholder="📦" maxlength="2">
+                <input type="text" class="item-name" value="${escapeHtml(name)}" placeholder="物品名">
+                <input type="text" class="item-holder" value="${escapeHtml(info.holder || '')}" placeholder="持有者">
+                <input type="text" class="item-location" value="${escapeHtml(info.location || '')}" placeholder="位置">
                 <button class="delete-btn"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="horae-editor-row horae-item-desc-row">
-                <input type="text" class="item-description" value="${info.description || ''}" placeholder="物品描述">
+                <input type="text" class="item-description" value="${escapeHtml(info.description || '')}" placeholder="物品描述">
             </div>
         `;
     }).join('');
@@ -4932,8 +5479,8 @@ function buildPanelContent(messageIndex, meta) {
         const roundedTotal = Math.round(newTotal * 100) / 100;
         const deltaStr = roundedDelta >= 0 ? `+${roundedDelta}` : `${roundedDelta}`;
         return `
-            <div class="horae-editor-row horae-affection-row" data-char="${key}" data-prev="${prevVal}">
-                <span class="affection-char">${key}</span>
+            <div class="horae-editor-row horae-affection-row" data-char="${escapeHtml(key)}" data-prev="${prevVal}">
+                <span class="affection-char">${escapeHtml(key)}</span>
                 <input type="text" class="affection-delta" value="${deltaStr}" placeholder="±变化">
                 <input type="number" class="affection-total" value="${roundedTotal}" placeholder="总值" step="any">
                 <button class="delete-btn"><i class="fa-solid fa-xmark"></i></button>
@@ -4953,29 +5500,29 @@ function buildPanelContent(messageIndex, meta) {
             <div class="horae-panel-row">
                 <label><i class="fa-regular fa-clock"></i> 时间</label>
                 <div class="horae-panel-value">
-                    <input type="text" class="horae-input-datetime" placeholder="日期 时间（如 2026/2/4 15:00）" value="${(() => {
+                    <input type="text" class="horae-input-datetime" placeholder="日期 时间（如 2026/2/4 15:00）" value="${escapeHtml((() => {
                         let val = meta.timestamp?.story_date || '';
                         if (meta.timestamp?.story_time) val += (val ? ' ' : '') + meta.timestamp.story_time;
                         return val;
-                    })()}">
+                    })())}">
                 </div>
             </div>
             <div class="horae-panel-row">
                 <label><i class="fa-solid fa-location-dot"></i> 地点</label>
                 <div class="horae-panel-value">
-                    <input type="text" class="horae-input-location" value="${meta.scene?.location || ''}" placeholder="场景位置">
+                    <input type="text" class="horae-input-location" value="${escapeHtml(meta.scene?.location || '')}" placeholder="场景位置">
                 </div>
             </div>
             <div class="horae-panel-row">
                 <label><i class="fa-solid fa-cloud"></i> 氛围</label>
                 <div class="horae-panel-value">
-                    <input type="text" class="horae-input-atmosphere" value="${meta.scene?.atmosphere || ''}" placeholder="场景氛围">
+                    <input type="text" class="horae-input-atmosphere" value="${escapeHtml(meta.scene?.atmosphere || '')}" placeholder="场景氛围">
                 </div>
             </div>
             <div class="horae-panel-row">
                 <label><i class="fa-solid fa-users"></i> 在场</label>
                 <div class="horae-panel-value">
-                    <input type="text" class="horae-input-characters" value="${(meta.scene?.characters_present || []).join(', ')}" placeholder="角色名，用逗号分隔">
+                    <input type="text" class="horae-input-characters" value="${escapeHtml((meta.scene?.characters_present || []).join(', '))}" placeholder="角色名，用逗号分隔">
                 </div>
             </div>
             <div class="horae-panel-row full-width">
@@ -5002,7 +5549,7 @@ function buildPanelContent(messageIndex, meta) {
                         <option value="重要" ${eventLevel === '重要' ? 'selected' : ''}>重要</option>
                         <option value="关键" ${eventLevel === '关键' ? 'selected' : ''}>关键</option>
                     </select>
-                    <input type="text" class="horae-input-event-summary" value="${eventSummary}" placeholder="事件摘要">
+                    <input type="text" class="horae-input-event-summary" value="${escapeHtml(eventSummary)}" placeholder="事件摘要">
                 </div>
             </div>
             <div class="horae-panel-row full-width">
@@ -5582,7 +6129,8 @@ function savePanelData(panelEl, messageId) {
         }
     }
     if (summaryEvent) {
-        summaryEvent.textContent = meta.event?.summary || '无特殊事件';
+        const evts = meta.events || (meta.event ? [meta.event] : []);
+        summaryEvent.textContent = evts.length > 0 ? evts.map(e => e.summary).join(' | ') : '无特殊事件';
     }
     if (summaryChars) {
         summaryChars.textContent = `${meta.scene.characters_present.length}人在场`;
@@ -5842,6 +6390,8 @@ function initTabs() {
  * 初始化设置页事件
  */
 function initSettingsEvents() {
+    $('#horae-btn-restart-tutorial').on('click', () => startTutorial());
+    
     $('#horae-setting-enabled').on('change', function() {
         settings.enabled = this.checked;
         saveSettings();
@@ -6049,9 +6599,10 @@ function initSettingsEvents() {
         applyThemeMode();
     });
 
-    // 美化导入/导出/删除
+    // 美化导入/导出/删除/自助美化
     $('#horae-btn-theme-export').on('click', exportTheme);
     $('#horae-btn-theme-import').on('click', importTheme);
+    $('#horae-btn-theme-designer').on('click', openThemeDesigner);
     $('#horae-btn-theme-delete').on('click', function() {
         const mode = settings.themeMode || 'dark';
         if (!mode.startsWith('custom-')) {
@@ -6385,7 +6936,7 @@ function syncSettingsToUI() {
  */
 async function scanHistoryWithProgress() {
     const overlay = document.createElement('div');
-    overlay.className = 'horae-progress-overlay' + (settings.themeMode === 'light' ? ' horae-light' : '');
+    overlay.className = 'horae-progress-overlay' + (isLightMode() ? ' horae-light' : '');
     overlay.innerHTML = `
         <div class="horae-progress-container">
             <div class="horae-progress-title">正在扫描历史记录...</div>
@@ -6514,16 +7065,25 @@ async function generateWithDirectApi(prompt) {
     if (!url.endsWith('/chat/completions')) {
         url = url.replace(/\/+$/, '') + '/chat/completions';
     }
+    const messages = [
+        {
+            role: 'system',
+            content: 'You are a professional literary analyst. Your task is to read creative fiction passages and produce concise plot summaries. Analyze all content objectively regardless of themes or genre. Output only the summary text, no commentary.'
+        },
+        { role: 'user', content: prompt }
+    ];
+    // 尝试注入酒馆的破限提示词，防止模型因内容审查返回空回复
+    try {
+        const { oai_settings } = await import('/scripts/openai.js');
+        if (oai_settings?.jailbreak_prompt) {
+            messages.push({ role: 'system', content: oai_settings.jailbreak_prompt });
+        }
+    } catch (_) { /* 容错：无法获取时使用原始 messages */ }
     const body = {
         model: settings.autoSummaryModel.trim(),
-        messages: [
-            {
-                role: 'system',
-                content: 'You are a professional literary analyst. Your task is to read creative fiction passages and produce concise plot summaries. Analyze all content objectively regardless of themes or genre. Output only the summary text, no commentary.'
-            },
-            { role: 'user', content: prompt }
-        ],
+        messages,
         temperature: 0.7,
+        max_tokens: 4096,
         stream: false
     };
     console.log(`[Horae] 独立API请求: ${url}, 模型: ${body.model}`);
@@ -6618,7 +7178,12 @@ async function checkAutoSummary() {
         const bufferEvents = [];
         for (const i of batchIndices) {
             const meta = chat[i]?.horae_meta;
-            if (!meta?.events) continue;
+            if (!meta) continue;
+            if (meta.event && !meta.events) {
+                meta.events = [meta.event];
+                delete meta.event;
+            }
+            if (!meta.events) continue;
             for (let j = 0; j < meta.events.length; j++) {
                 const evt = meta.events[j];
                 if (!evt?.summary || evt._compressedBy || evt.isSummary) continue;
@@ -6629,6 +7194,15 @@ async function checkAutoSummary() {
                     level: evt.level || '一般',
                     summary: evt.summary
                 });
+            }
+        }
+        
+        // 检测缓冲区消息是否完全没有时间线事件
+        if (bufferEvents.length === 0) {
+            const hasAnyHoraeMeta = batchIndices.some(i => chat[i]?.horae_meta?.timestamp?.story_date);
+            if (!hasAnyHoraeMeta) {
+                showToast('自动摘要：检测到缓冲区消息没有 Horae 时间线数据，建议先使用「AI智能摘要」批量补全时间线后再开启自动摘要。', 'warning');
+                return;
             }
         }
         
@@ -6883,7 +7457,7 @@ async function executeBatchScan(batches, options = {}) {
     };
 
     const overlay = document.createElement('div');
-    overlay.className = 'horae-progress-overlay' + (settings.themeMode === 'light' ? ' horae-light' : '');
+    overlay.className = 'horae-progress-overlay' + (isLightMode() ? ' horae-light' : '');
     overlay.innerHTML = `
         <div class="horae-progress-container">
             <div class="horae-progress-title">AI 智能摘要中...</div>
@@ -7168,7 +7742,7 @@ function showScanReviewModal(scanResults, scanOptions) {
     }
 
     const modal = document.createElement('div');
-    modal.className = 'horae-modal horae-review-modal' + (settings.themeMode === 'light' ? ' horae-light' : '');
+    modal.className = 'horae-modal horae-review-modal' + (isLightMode() ? ' horae-light' : '');
 
     const activeTab = tabs[0].id;
     const tabsHtml = tabs.map(t =>
@@ -7285,6 +7859,7 @@ function showScanReviewModal(scanResults, scanOptions) {
                 horaeManager._mergeRelationships(m.relationships);
             }
             horaeManager.setMessageMeta(r.msgIndex, m);
+            injectHoraeTagToMessage(r.msgIndex, m);
             saved++;
         }
         horaeManager.rebuildTableData();
@@ -7383,7 +7958,7 @@ function applyDeletedToResults(scanResults, deletedSet, categories) {
 function showAIScanConfigDialog(targetCount) {
     return new Promise(resolve => {
         const modal = document.createElement('div');
-        modal.className = 'horae-modal' + (settings.themeMode === 'light' ? ' horae-light' : '');
+        modal.className = 'horae-modal' + (isLightMode() ? ' horae-light' : '');
         modal.innerHTML = `
             <div class="horae-modal-content" style="max-width: 420px;">
                 <div class="horae-modal-header">
@@ -7818,6 +8393,199 @@ function onSwipePanel(messageId) {
 }
 
 // ============================================
+// 新用户导航教学
+// ============================================
+
+const TUTORIAL_STEPS = [
+    {
+        title: '欢迎使用 Horae 时光记忆！',
+        content: `这是一个让 AI 自动追踪剧情状态的插件。<br>
+            Horae 会在 AI 回复时附带 <code>&lt;horae&gt;</code> 标签，自动记录时间、场景、角色、物品等状态变化。<br><br>
+            接下来我会带你快速了解核心功能，请跟着提示操作。`,
+        target: null,
+        action: null
+    },
+    {
+        title: '旧记录处理 — AI 智能摘要',
+        content: `如果你有旧聊天记录，需要先用「AI智能摘要」批量补全 <code>&lt;horae&gt;</code> 标签。<br>
+            AI 会回读历史对话并生成结构化的时间线数据。<br><br>
+            <strong>新对话无需操作</strong>，插件会自动工作。`,
+        target: '#horae-btn-ai-scan',
+        action: null
+    },
+    {
+        title: '自动摘要 & 隐藏',
+        content: `开启后，超过阈值的旧消息会被自动摘要并隐藏，节省 Token。<br><br>
+            <strong>注意</strong>：此功能需要已有时间线数据（<code>&lt;horae&gt;</code> 标签）才能正常工作。<br>
+            旧记录请先用上一步的「AI智能摘要」补全后再开启。`,
+        target: '#horae-autosummary-collapse-toggle',
+        action: () => {
+            const body = document.getElementById('horae-autosummary-collapse-body');
+            if (body && body.style.display === 'none') {
+                document.getElementById('horae-autosummary-collapse-toggle')?.click();
+            }
+        }
+    },
+    {
+        title: '上下文深度',
+        content: `控制发送给 AI 的时间线事件范围。<br><br>
+            · 预设值 <strong>15</strong> 表示只发送最近 15 楼内的「一般」事件<br>
+            · <strong>超出深度的「重要」和「关键」事件仍然会发送</strong>，不受深度限制<br>
+            · 设为 0 则只发送「重要」和「关键」事件<br><br>
+            一般无需调整。值越大发送的信息越多，Token 消耗也越高。`,
+        target: '#horae-setting-context-depth',
+        action: null
+    },
+    {
+        title: '注入位置（深度）',
+        content: `控制 Horae 的状态信息注入到对话的哪个位置。<br><br>
+            · 预设值 <strong>1</strong> 表示在倒数第 1 条消息后注入<br>
+            · 如果你的预设（Preset）自带摘要或世界书等<strong>同质性功能</strong>，可能与 Horae 的时间线格式冲突，导致预设的正则替换被带偏<br>
+            · 遇到冲突时可调整此值，或<strong>关闭预设中的同质性功能</strong>（推荐）<br><br>
+            <strong>建议</strong>：同类功能不必多开，选一个用即可。`,
+        target: '#horae-setting-injection-position',
+        action: null
+    },
+    {
+        title: '自定义提示词',
+        content: `你可以自定义各种提示词来调整 AI 的行为：<br>
+            · <strong>系统注入提示词</strong> — 控制 AI 输出 <code>&lt;horae&gt;</code> 标签的规则<br>
+            · <strong>AI 智能摘要提示词</strong> — 批量提取时间线的规则<br>
+            · <strong>AI 分析提示词</strong> — 单条消息深度分析的规则<br>
+            · <strong>剧情压缩提示词</strong> — 摘要压缩的规则<br><br>
+            建议熟悉插件后再修改。留空即使用默认值。`,
+        target: '#horae-prompt-collapse-toggle',
+        action: () => {
+            const body = document.getElementById('horae-prompt-collapse-body');
+            if (body && body.style.display === 'none') {
+                document.getElementById('horae-prompt-collapse-toggle')?.click();
+            }
+        }
+    },
+    {
+        title: '自定义表格',
+        content: `创建 Excel 风格表格，让 AI 按需填写信息（如技能表、势力表）。<br><br>
+            <strong>重点提示</strong>：<br>
+            · 表头必须明确填写，AI 根据表头理解要填什么<br>
+            · 每个表格的「填写要求」必须具体，AI 才能正确填写<br>
+            · 部分模型（如 Gemini 免费层级）表格辨识能力较弱，可能无法准确填写`,
+        target: '#horae-custom-tables-list',
+        action: null
+    },
+    {
+        title: '进阶追踪功能',
+        content: `以下功能默认关闭，适合追求精细 RP 的用户：<br><br>
+            · <strong>场景记忆</strong> — 记录地点的固定物理特征描述，保持场景描写一致<br>
+            · <strong>关系网络</strong> — 追踪角色之间的关系变化（朋友、恋人、敌对等）<br>
+            · <strong>情绪追踪</strong> — 追踪角色情绪/心理状态变化<br><br>
+            如有需要，可在「发送给AI的内容」中开启。`,
+        target: '#horae-setting-send-location-memory',
+        action: null
+    },
+    {
+        title: '教学完成！',
+        content: `如果你是开始新对话，无需额外操作 — 插件会自动让 AI 在回复时附带标签，自动建立时间线。<br><br>
+            如需重新查看教学，可在设置底部找到「重新开始教学」按钮。<br><br>
+            祝你 RP 愉快！🎉`,
+        target: null,
+        action: null
+    }
+];
+
+async function startTutorial() {
+    let drawerOpened = false;
+
+    for (let i = 0; i < TUTORIAL_STEPS.length; i++) {
+        const step = TUTORIAL_STEPS[i];
+        const isLast = i === TUTORIAL_STEPS.length - 1;
+
+        // 首个需要面板的步骤时打开抽屉并切到设置 tab
+        if (step.target && !drawerOpened) {
+            const drawerIcon = $('#horae_drawer_icon');
+            if (drawerIcon.hasClass('closedIcon')) {
+                drawerIcon.trigger('click');
+                await new Promise(r => setTimeout(r, 400));
+            }
+            $(`.horae-tab[data-tab="settings"]`).trigger('click');
+            await new Promise(r => setTimeout(r, 200));
+            drawerOpened = true;
+        }
+
+        if (step.action) step.action();
+
+        if (step.target) {
+            await new Promise(r => setTimeout(r, 200));
+            const targetEl = document.querySelector(step.target);
+            if (targetEl) {
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        const continued = await showTutorialStep(step, i + 1, TUTORIAL_STEPS.length, isLast);
+        if (!continued) break;
+    }
+
+    settings.tutorialCompleted = true;
+    saveSettings();
+}
+
+function showTutorialStep(step, current, total, isLast) {
+    return new Promise(resolve => {
+        document.querySelectorAll('.horae-tutorial-card').forEach(e => e.remove());
+        document.querySelectorAll('.horae-tutorial-highlight').forEach(e => e.classList.remove('horae-tutorial-highlight'));
+
+        // 高亮目标并定位插入点
+        let highlightEl = null;
+        let insertAfterEl = null;
+        if (step.target) {
+            const targetEl = document.querySelector(step.target);
+            if (targetEl) {
+                highlightEl = targetEl.closest('.horae-settings-section') || targetEl;
+                highlightEl.classList.add('horae-tutorial-highlight');
+                insertAfterEl = highlightEl;
+            }
+        }
+
+        const card = document.createElement('div');
+        card.className = 'horae-tutorial-card' + (isLightMode() ? ' horae-light' : '');
+        card.innerHTML = `
+            <div class="horae-tutorial-card-head">
+                <span class="horae-tutorial-step-indicator">${current}/${total}</span>
+                <strong>${step.title}</strong>
+            </div>
+            <div class="horae-tutorial-card-body">${step.content}</div>
+            <div class="horae-tutorial-card-foot">
+                <button class="horae-tutorial-skip">跳过</button>
+                <button class="horae-tutorial-next">${isLast ? '完成 ✓' : '下一步 →'}</button>
+            </div>
+        `;
+
+        // 紧跟在目标区域后面插入，没有目标则放到设置页顶部
+        if (insertAfterEl && insertAfterEl.parentNode) {
+            insertAfterEl.parentNode.insertBefore(card, insertAfterEl.nextSibling);
+        } else {
+            const container = document.getElementById('horae-tab-settings') || document.getElementById('horae_drawer_content');
+            if (container) {
+                container.insertBefore(card, container.firstChild);
+            } else {
+                document.body.appendChild(card);
+            }
+        }
+
+        // 自动滚到高亮目标（教学卡片紧跟其后，一起可见）
+        const scrollTarget = highlightEl || card;
+        setTimeout(() => scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+
+        const cleanup = () => {
+            if (highlightEl) highlightEl.classList.remove('horae-tutorial-highlight');
+            card.remove();
+        };
+        card.querySelector('.horae-tutorial-next').addEventListener('click', () => { cleanup(); resolve(true); });
+        card.querySelector('.horae-tutorial-skip').addEventListener('click', () => { cleanup(); resolve(false); });
+    });
+}
+
+// ============================================
 // 初始化
 // ============================================
 
@@ -7882,6 +8650,11 @@ jQuery(async () => {
     }
     
     refreshAllDisplays();
+    
+    // 新用户导航教学（仅完全没用过 Horae 的全新用户触发）
+    if (_isFirstTimeUser) {
+        setTimeout(() => startTutorial(), 800);
+    }
     
     isInitialized = true;
     console.log(`[Horae] v${VERSION} 加载完成！作者: SenriYuki`);

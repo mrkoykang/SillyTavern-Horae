@@ -1899,8 +1899,8 @@ class HoraeManager {
         }
         
         const sceneDescLine = this.settings?.sendLocationMemory ? '\nscene_desc:地点固定物理特征（见场景记忆规则，触发时才写）' : '';
-        const relLine = this.settings?.sendRelationships ? '\nrel:角色A>角色B=关系类型|备注（触发时才写，见关系网络规则）' : '';
-        const moodLine = this.settings?.sendMood ? '\nmood:角色名=情绪/心理状态（触发时才写，见情绪追踪规则）' : '';
+        const relLine = this.settings?.sendRelationships ? '\nrel:角色A>角色B=关系类型|备注（见关系网络规则，触发时才写）' : '';
+        const moodLine = this.settings?.sendMood ? '\nmood:角色名=情绪/心理状态（见情绪追踪规则，触发时才写）' : '';
         return `
 【Horae记忆系统】（以下示例仅为示范，勿直接原句用于正文！）
 
@@ -1910,6 +1910,7 @@ class HoraeManager {
   ② 其他所有字段 → 严格遵守各自的【触发条件】，无变化则完全不写该行
   ③ 已记录的NPC/物品若无新信息 → 禁止输出！重复输出无变化的数据=浪费token
   ④ 部分字段变化 → 使用增量更新，只写变化的部分
+  ⑤ NPC首次出场 → npc:和affection:两行都必须写！
 
 ═══ 标签格式 ═══
 每次回复末尾必须写入两个标签：
@@ -1921,8 +1922,8 @@ characters:在场角色名,逗号分隔（必填）
 costume:角色名=服装描述（必填，每人一行，禁止分号合并）
 item/item!/item!!:见物品规则（触发时才写）
 item-:物品名（物品消耗/丢失时删除。见物品规则，触发时才写）
-affection:角色名=好感度（触发时才写）
-npc:角色名|外貌=性格@关系~扩展字段（触发时才写）
+affection:角色名=好感度（★NPC首次出场必填初始值！之后仅好感变化时更新）
+npc:角色名|外貌=性格@关系~扩展字段（★NPC首次出场必填完整信息！之后仅变化时更新）
 agenda:日期|内容（新待办触发时才写）
 agenda-:内容关键词（待办已完成/失效时才写，系统自动移除匹配的待办）${relLine}${moodLine}
 </horae>
@@ -2032,14 +2033,28 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
 ${this.generateLocationMemoryPrompt()}${this.generateCustomTablesPrompt()}${this.generateRelationshipPrompt()}${this.generateMoodPrompt()}
 ═══ 最终强制提醒 ═══
 你的回复末尾必须包含 <horae>...</horae> 和 <horaeevent>...</horaeevent> 两个标签。
-缺少任何一个标签 = 输出不合格。这是系统级强制要求，不可省略。
+缺少任何一个标签=不合格。
+
+【每回合必写字段——缺任何一项=不合格！】
+  ✅ time: ← 当前日期时间
+  ✅ location: ← 当前地点
+  ✅ atmosphere: ← 氛围
+  ✅ characters: ← 当前在场所有角色名，逗号分隔（绝对不能省略！）
+  ✅ costume: ← 每个在场角色各一行服装描述
+  ✅ event: ← 重要程度|事件摘要
+
+【NPC首次登场时额外必写——缺一不可！】
+  ✅ npc:名|外貌=性格@关系~性别:值~年龄:值~种族:值~职业:值
+  ✅ affection:该NPC名=初始好感度（陌生0-20/熟人30-50/朋友50-70/恋人70-90）
+
+以上字段不存在"可写可不写"的情况——它们是强制性的。
 `;
     }
 
     getDefaultSystemPrompt() {
         const sceneDescLine = this.settings?.sendLocationMemory ? '\nscene_desc:地点固定物理特征（见场景记忆规则，触发时才写）' : '';
-        const relLine = this.settings?.sendRelationships ? '\nrel:角色A>角色B=关系类型|备注（触发时才写，见关系网络规则）' : '';
-        const moodLine = this.settings?.sendMood ? '\nmood:角色名=情绪/心理状态（触发时才写，见情绪追踪规则）' : '';
+        const relLine = this.settings?.sendRelationships ? '\nrel:角色A>角色B=关系类型|备注（见关系网络规则，触发时才写）' : '';
+        const moodLine = this.settings?.sendMood ? '\nmood:角色名=情绪/心理状态（见情绪追踪规则，触发时才写）' : '';
         return `【Horae记忆系统】（以下示例仅为示范，勿直接原句用于正文！）
 
 ═══ 核心原则：变化驱动 ═══
@@ -2048,6 +2063,7 @@ ${this.generateLocationMemoryPrompt()}${this.generateCustomTablesPrompt()}${this
   ② 其他所有字段 → 严格遵守各自的【触发条件】，无变化则完全不写该行
   ③ 已记录的NPC/物品若无新信息 → 禁止输出！重复输出无变化的数据=浪费token
   ④ 部分字段变化 → 使用增量更新，只写变化的部分
+  ⑤ NPC首次出场 → npc:和affection:两行都必须写！
 
 ═══ 标签格式 ═══
 每次回复末尾必须写入两个标签：
@@ -2059,8 +2075,8 @@ characters:在场角色名,逗号分隔（必填）
 costume:角色名=服装描述（必填，每人一行，禁止分号合并）
 item/item!/item!!:见物品规则（触发时才写）
 item-:物品名（物品消耗/丢失时删除。见物品规则，触发时才写）
-affection:角色名=好感度（触发时才写）
-npc:角色名|外貌=性格@关系~扩展字段（触发时才写）
+affection:角色名=好感度（★NPC首次出场必填初始值！之后仅好感变化时更新）
+npc:角色名|外貌=性格@关系~扩展字段（★NPC首次出场必填完整信息！之后仅变化时更新）
 agenda:日期|内容（新待办触发时才写）
 agenda-:内容关键词（待办已完成/失效时才写，系统自动移除匹配的待办）${relLine}${moodLine}
 </horae>
@@ -2166,7 +2182,25 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
 禁止"Day 1"/"第X天"等模糊格式，必须使用具体日历日期。
 - 现代：年/月/日 时:分（如 2026/2/4 15:00）
 - 历史：该年代日期（如 1920/3/15 14:00）
-- 奇幻/架空：该世界观日历（如 霜降月第三日 黄昏）`;
+- 奇幻/架空：该世界观日历（如 霜降月第三日 黄昏）
+
+═══ 最终强制提醒 ═══
+你的回复末尾必须包含 <horae>...</horae> 和 <horaeevent>...</horaeevent> 两个标签。
+缺少任何一个标签=不合格。
+
+【每回合必写字段——缺任何一项=不合格！】
+  ✅ time: ← 当前日期时间
+  ✅ location: ← 当前地点
+  ✅ atmosphere: ← 氛围
+  ✅ characters: ← 当前在场所有角色名，逗号分隔（绝对不能省略！）
+  ✅ costume: ← 每个在场角色各一行服装描述
+  ✅ event: ← 重要程度|事件摘要
+
+【NPC首次登场时额外必写——缺一不可！】
+  ✅ npc:名|外貌=性格@关系~性别:值~年龄:值~种族:值~职业:值
+  ✅ affection:该NPC名=初始好感度（陌生0-20/熟人30-50/朋友50-70/恋人70-90）
+
+以上字段不存在"可写可不写"的情况——它们是强制性的。`;
     }
 
     getDefaultTablesPrompt() {
