@@ -10,7 +10,7 @@
                 <i class="fa-regular fa-clock"></i>
                 Horae 时光记忆
             </div>
-            <span class="horae-version">v1.7.2</span>
+            <span class="horae-version">v1.7.3</span>
         </div>
         
         <!-- 标签页导航 -->
@@ -524,6 +524,20 @@
                         </label>
                         <span class="horae-setting-sub-hint">追踪在场角色的情绪/心理状态变化，帮助AI保持角色情绪连贯性。AI仅在情绪明显变化时输出。</span>
                     </div>
+                    <div class="horae-setting-item" style="border-top: 1px solid var(--horae-border); padding-top: 8px; margin-top: 4px;">
+                        <label>
+                            <input type="checkbox" id="horae-setting-anti-paraphrase">
+                            反转述模式
+                        </label>
+                        <span class="horae-setting-sub-hint">适用于「USER自己描写行为/动作，AI不再转述USER部分」的写法。开启后，AI回复时会将上一条USER消息的内容也纳入本条<horae>标签的结算，确保USER的行为不遗漏。</span>
+                    </div>
+                    <div class="horae-setting-item">
+                        <label>
+                            <input type="checkbox" id="horae-setting-sideplay-mode">
+                            番外/小剧场模式
+                        </label>
+                        <span class="horae-setting-sub-hint">启用后，底部面板会出现「标记为番外」按钮。被标记的消息不会被Horae追踪、不参与自动摘要，适合在主线中穿插if/番外/小剧场。</span>
+                    </div>
                 </div>
                 
                 <div class="horae-settings-section">
@@ -611,10 +625,16 @@
                                         placeholder="gpt-4o-mini">
                                     <span class="horae-setting-sub-hint">低成本模型即可，如 gpt-4o-mini、deepseek-chat 等。</span>
                                 </div>
+                                <div class="horae-setting-item" style="margin-top:6px;">
+                                    <button id="horae-btn-test-sub-api" class="horae-btn" style="width:100%;">
+                                        <i class="fa-solid fa-plug-circle-check"></i> 测试副API连接
+                                    </button>
+                                </div>
                                 <span class="horae-setting-sub-hint">
                                     <i class="fa-solid fa-circle-info"></i>
                                     填写完成后，自动摘要将通过独立 HTTP 请求并行生成，不影响酒馆主 API。<br>
-                                    支持所有 OpenAI 兼容格式的端点（OpenAI、DeepSeek、OpenRouter 等）。
+                                    支持所有 OpenAI 兼容格式的端点（OpenAI、DeepSeek、OpenRouter 等）。<br>
+                                    连接测试仅查询模型列表，不消耗生成次数。
                                 </span>
                             </div>
                         </div>
@@ -631,7 +651,7 @@
                         <span class="horae-setting-hint" style="margin-bottom: 12px;">
                             <i class="fa-solid fa-circle-info"></i>
                             对 Horae 标签数据做向量检索，自动召回相关历史片段注入给 AI。<br>
-                            <strong>本地模式：</strong>下载约 25MB 量化模型到浏览器缓存，占用 50-80MB 内存，⚠ 2GB 以下手机或云酒馆不建议使用。<br>
+                            <strong>本地模式：</strong>下载约 25MB 量化模型到浏览器缓存，占用 50-80MB 内存，⚠ 2GB 以下手机或云酒馆不建议使用，请务必确保有配置—max-old-space-size解除Node.js运行内存限制再启用。<br>
                             <strong>API 模式：</strong>使用远程 Embedding API，无需本地资源。
                         </span>
                         <div class="horae-setting-item">
@@ -985,7 +1005,7 @@
                 </div>
                 
                 <div class="horae-about">
-                    <p>Horae v1.7.2 | 作者: SenriYuki</p>
+                    <p>Horae v1.7.3 | 作者: SenriYuki</p>
                     <p>基于时间锚点的AI记忆增强系统</p>
                 </div>
             </div>

@@ -3,7 +3,7 @@
  * 基于时间锚点的AI记忆增强系统
  * 
  * 作者: SenriYuki
- * 版本: 1.7.2
+ * 版本: 1.7.3
  */
 
 import { renderExtensionTemplateAsync, getContext, extension_settings } from '/scripts/extensions.js';
@@ -20,7 +20,7 @@ import { calculateRelativeTime, calculateDetailedRelativeTime, formatRelativeTim
 const EXTENSION_NAME = 'horae';
 const EXTENSION_FOLDER = `third-party/SillyTavern-Horae`;
 const TEMPLATE_PATH = `${EXTENSION_FOLDER}/assets/templates`;
-const VERSION = '1.7.2';
+const VERSION = '1.7.3';
 
 // 配套正则规则（自动注入ST原生正则系统）
 const HORAE_REGEX_RULES = [
@@ -28,7 +28,7 @@ const HORAE_REGEX_RULES = [
         id: 'horae_hide',
         scriptName: 'Horae - 隐藏状态标签',
         description: '隐藏<horae>状态标签，不显示在正文，不发送给AI',
-        findRegex: '/(?:<horae>[\\s\\S]*?<\\/horae>|<!--horae[\\s\\S]*?-->)/gim',
+        findRegex: '/(?:<horae>(?:(?!<\\/think(?:ing)?>)[\\s\\S])*?<\\/horae>|<!--horae[\\s\\S]*?-->)/gim',
         replaceString: '',
         trimStrings: [],
         placement: [2],
@@ -44,7 +44,7 @@ const HORAE_REGEX_RULES = [
         id: 'horae_event_display_only',
         scriptName: 'Horae - 隐藏事件标签',
         description: '隐藏<horaeevent>事件标签的显示，不发送给AI',
-        findRegex: '/<horaeevent>[\\s\\S]*?<\\/horaeevent>/gim',
+        findRegex: '/<horaeevent>(?:(?!<\\/think(?:ing)?>)[\\s\\S])*?<\\/horaeevent>/gim',
         replaceString: '',
         trimStrings: [],
         placement: [2],
@@ -126,6 +126,8 @@ const DEFAULT_SETTINGS = {
     autoSummaryApiUrl: '',          // 独立API端点地址（OpenAI兼容）
     autoSummaryApiKey: '',          // 独立API密钥
     autoSummaryModel: '',           // 独立API模型名称
+    antiParaphraseMode: false,      // 反转述模式：AI回复时结算上一条USER的内容
+    sideplayMode: false,            // 番外/小剧场模式：启用后可标记消息跳过Horae
     // 教学
     tutorialCompleted: false,       // 新用户导航教学是否已完成
     // 向量记忆
@@ -4422,7 +4424,7 @@ function openLocationEditModal(locationName) {
                 <div class="horae-modal-body horae-edit-modal-body">
                     <div class="horae-edit-field">
                         <label>地点名称</label>
-                        <input type="text" id="horae-loc-edit-name" value="${escapeHtml(locationName || '')}" placeholder="如：无名酒馆·大厅" ${isNew ? '' : 'readonly'}>
+                        <input type="text" id="horae-loc-edit-name" value="${escapeHtml(locationName || '')}" placeholder="如：无名酒馆·大厅">
                     </div>
                     <div class="horae-edit-field">
                         <label>场景描述</label>
@@ -4457,21 +4459,42 @@ function openLocationEditModal(locationName) {
         if (!chat?.length) return;
         if (!chat[0].horae_meta) chat[0].horae_meta = createEmptyMeta();
         if (!chat[0].horae_meta.locationMemory) chat[0].horae_meta.locationMemory = {};
+        const mem = chat[0].horae_meta.locationMemory;
         
         const now = new Date().toISOString();
         if (isNew) {
-            chat[0].horae_meta.locationMemory[name] = { desc, firstSeen: now, lastUpdated: now, _userEdited: true };
-        } else {
-            if (!isNew && locationName !== name) {
-                delete chat[0].horae_meta.locationMemory[locationName];
+            mem[name] = { desc, firstSeen: now, lastUpdated: now, _userEdited: true };
+        } else if (locationName !== name) {
+            // 改名：级联更新子级 + 记录曾用名
+            const SEP = /[·・\-\/\|]/;
+            const oldEntry = mem[locationName] || {};
+            const aliases = oldEntry._aliases || [];
+            if (!aliases.includes(locationName)) aliases.push(locationName);
+            delete mem[locationName];
+            mem[name] = { ...oldEntry, desc, lastUpdated: now, _userEdited: true, _aliases: aliases };
+            // 检测是否为父级改名，级联所有子级
+            const childKeys = Object.keys(mem).filter(k => {
+                const sepMatch = k.match(SEP);
+                return sepMatch && k.substring(0, sepMatch.index).trim() === locationName;
+            });
+            for (const childKey of childKeys) {
+                const sepMatch = childKey.match(SEP);
+                const childPart = childKey.substring(sepMatch.index);
+                const newChildKey = name + childPart;
+                const childEntry = mem[childKey];
+                const childAliases = childEntry._aliases || [];
+                if (!childAliases.includes(childKey)) childAliases.push(childKey);
+                delete mem[childKey];
+                mem[newChildKey] = { ...childEntry, lastUpdated: now, _aliases: childAliases };
             }
-            chat[0].horae_meta.locationMemory[name] = { ...existing, desc, lastUpdated: now, _userEdited: true };
+        } else {
+            mem[name] = { ...existing, desc, lastUpdated: now, _userEdited: true };
         }
         
         await getContext().saveChat();
         closeEditModal();
         updateLocationMemoryDisplay();
-        showToast(isNew ? '地点已添加' : '场景记忆已更新', 'success');
+        showToast(isNew ? '地点已添加' : (locationName !== name ? `已改名：${locationName} → ${name}` : '场景记忆已更新'), 'success');
     });
     
     document.getElementById('horae-loc-cancel').addEventListener('click', () => closeEditModal());
@@ -5438,21 +5461,27 @@ function addMessagePanel(messageEl, messageIndex) {
         ? eventsArr.map(e => e.summary).join(' | ') 
         : '无特殊事件';
     const charCount = meta.scene?.characters_present?.length || 0;
+    const isSkipped = !!meta._skipHorae;
+    const sideplayBtnStyle = settings.sideplayMode ? '' : 'display:none;';
     
     const panelHtml = `
-        <div class="horae-message-panel" data-message-id="${messageIndex}">
+        <div class="horae-message-panel${isSkipped ? ' horae-sideplay' : ''}" data-message-id="${messageIndex}">
             <div class="horae-panel-toggle">
                 <div class="horae-panel-icon">
-                    <i class="fa-regular fa-clock"></i>
+                    <i class="fa-regular ${isSkipped ? 'fa-eye-slash' : 'fa-clock'}"></i>
                 </div>
                 <div class="horae-panel-summary">
-                    <span class="horae-summary-time">${time}</span>
+                    ${isSkipped ? '<span class="horae-sideplay-badge">番外</span>' : ''}
+                    <span class="horae-summary-time">${isSkipped ? '（不追踪）' : time}</span>
                     <span class="horae-summary-divider">|</span>
-                    <span class="horae-summary-event">${eventSummary}</span>
+                    <span class="horae-summary-event">${isSkipped ? '此消息已标记为番外' : eventSummary}</span>
                     <span class="horae-summary-divider">|</span>
-                    <span class="horae-summary-chars">${charCount}人在场</span>
+                    <span class="horae-summary-chars">${isSkipped ? '' : charCount + '人在场'}</span>
                 </div>
                 <div class="horae-panel-actions">
+                    <button class="horae-btn-sideplay" title="${isSkipped ? '取消番外标记' : '标记为番外（不追踪）'}" style="${sideplayBtnStyle}">
+                        <i class="fa-solid ${isSkipped ? 'fa-eye' : 'fa-masks-theater'}"></i>
+                    </button>
                     <button class="horae-btn-rescan" title="重新扫描此消息">
                         <i class="fa-solid fa-rotate"></i>
                     </button>
@@ -5747,14 +5776,20 @@ function bindPanelEvents(panelEl) {
             if (icon) icon.className = isHidden ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
         };
         
+        const sideplayBtn = panelEl.querySelector('.horae-btn-sideplay');
+        
         toggleEl?.addEventListener('click', (e) => {
-            if (e.target.closest('.horae-btn-expand') || e.target.closest('.horae-btn-rescan')) return;
+            if (e.target.closest('.horae-btn-expand') || e.target.closest('.horae-btn-rescan') || e.target.closest('.horae-btn-sideplay')) return;
             togglePanel();
         });
         expandBtn?.addEventListener('click', togglePanel);
         rescanBtn?.addEventListener('click', (e) => {
             e.stopPropagation();
             rescanMessageMeta(messageId, panelEl);
+        });
+        sideplayBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleSideplay(messageId, panelEl);
         });
     }
     
@@ -5909,6 +5944,13 @@ function bindPanelEvents(panelEl) {
             if (parsed.deletedAgenda && parsed.deletedAgenda.length > 0) {
                 horaeManager.removeCompletedAgenda(parsed.deletedAgenda);
             }
+            // 全局同步
+            if (parsed.relationships?.length > 0) {
+                horaeManager._mergeRelationships(parsed.relationships);
+            }
+            if (parsed.scene?.scene_desc && parsed.scene?.location) {
+                horaeManager._updateLocationMemory(parsed.scene.location, parsed.scene.scene_desc);
+            }
             horaeManager.setMessageMeta(messageId, newMeta);
             
             const contentEl = panelEl.querySelector('.horae-panel-content');
@@ -5953,6 +5995,13 @@ function bindPanelEvents(panelEl) {
                 // 处理已完成待办
                 if (result.deletedAgenda && result.deletedAgenda.length > 0) {
                     horaeManager.removeCompletedAgenda(result.deletedAgenda);
+                }
+                // 全局同步
+                if (result.relationships?.length > 0) {
+                    horaeManager._mergeRelationships(result.relationships);
+                }
+                if (result.scene?.scene_desc && result.scene?.location) {
+                    horaeManager._updateLocationMemory(result.scene.location, result.scene.scene_desc);
                 }
                 horaeManager.setMessageMeta(messageId, newMeta);
                 
@@ -6012,6 +6061,25 @@ function bindAffectionInputs(container) {
     });
 }
 
+/** 切换消息的番外/小剧场标记 */
+function toggleSideplay(messageId, panelEl) {
+    const meta = horaeManager.getMessageMeta(messageId);
+    if (!meta) return;
+    const wasSkipped = !!meta._skipHorae;
+    meta._skipHorae = !wasSkipped;
+    horaeManager.setMessageMeta(messageId, meta);
+    getContext().saveChat();
+    
+    // 重建面板
+    const messageEl = panelEl.closest('.mes');
+    if (messageEl) {
+        panelEl.remove();
+        addMessagePanel(messageEl, messageId);
+    }
+    refreshAllDisplays();
+    showToast(meta._skipHorae ? '已标记为番外（不追踪）' : '已取消番外标记', 'success');
+}
+
 /** 重新扫描消息并更新面板（完全替换） */
 function rescanMessageMeta(messageId, panelEl) {
     // 从DOM获取最新的消息内容（用户可能已编辑）
@@ -6046,35 +6114,38 @@ function rescanMessageMeta(messageId, panelEl) {
     const parsed = horaeManager.parseHoraeTag(messageContent);
     
     if (parsed) {
-        // 完全替换（不合并）
         const existingMeta = horaeManager.getMessageMeta(messageId);
-        const newMeta = createEmptyMeta();
-        
-        newMeta.timestamp = parsed.timestamp || {};
-        newMeta.scene = parsed.scene || {};
-        newMeta.costumes = parsed.costumes || {};
-        newMeta.items = parsed.items || {};
-        newMeta.deletedItems = parsed.deletedItems || [];
-        // 兼容新旧事件格式
-        newMeta.events = parsed.events || (parsed.event ? [parsed.event] : []);
-        newMeta.affection = parsed.affection || {};
-        newMeta.agenda = parsed.agenda || [];
+        // 用 mergeParsedToMeta 以空 meta 为基础，确保所有字段一致处理
+        const newMeta = horaeManager.mergeParsedToMeta(createEmptyMeta(), parsed);
         
         // 只保留原有的NPC数据（如果新解析中没有）
-        if (parsed.npcs && Object.keys(parsed.npcs).length > 0) {
-            newMeta.npcs = parsed.npcs;
-        } else if (existingMeta?.npcs) {
+        if ((!parsed.npcs || Object.keys(parsed.npcs).length === 0) && existingMeta?.npcs) {
             newMeta.npcs = existingMeta.npcs;
         }
         
         // 无新agenda则保留旧数据
-        if (newMeta.agenda.length === 0 && existingMeta?.agenda?.length > 0) {
+        if ((!newMeta.agenda || newMeta.agenda.length === 0) && existingMeta?.agenda?.length > 0) {
             newMeta.agenda = existingMeta.agenda;
+        }
+        
+        // 处理表格更新
+        if (newMeta._tableUpdates) {
+            horaeManager.applyTableUpdates(newMeta._tableUpdates);
+            delete newMeta._tableUpdates;
         }
         
         // 处理已完成待办
         if (parsed.deletedAgenda && parsed.deletedAgenda.length > 0) {
             horaeManager.removeCompletedAgenda(parsed.deletedAgenda);
+        }
+        
+        // 全局同步：关系网络合并到 chat[0]
+        if (parsed.relationships?.length > 0) {
+            horaeManager._mergeRelationships(parsed.relationships);
+        }
+        // 全局同步：场景记忆更新
+        if (parsed.scene?.scene_desc && parsed.scene?.location) {
+            horaeManager._updateLocationMemory(parsed.scene.location, parsed.scene.scene_desc);
         }
         
         horaeManager.setMessageMeta(messageId, newMeta);
@@ -6112,9 +6183,18 @@ function savePanelData(panelEl, messageId) {
     const existingMeta = horaeManager.getMessageMeta(messageId);
     const meta = createEmptyMeta();
     
-    // 保留原有的 NPC 数据（因为面板中没有 NPC 编辑区）
+    // 保留面板中没有编辑区的数据
     if (existingMeta?.npcs) {
         meta.npcs = JSON.parse(JSON.stringify(existingMeta.npcs));
+    }
+    if (existingMeta?.relationships?.length) {
+        meta.relationships = JSON.parse(JSON.stringify(existingMeta.relationships));
+    }
+    if (existingMeta?.scene?.scene_desc) {
+        meta.scene.scene_desc = existingMeta.scene.scene_desc;
+    }
+    if (existingMeta?.mood && Object.keys(existingMeta.mood).length > 0) {
+        meta.mood = JSON.parse(JSON.stringify(existingMeta.mood));
     }
     
     // 分离日期时间
@@ -6243,6 +6323,14 @@ function savePanelData(panelEl, messageId) {
     }
     
     horaeManager.setMessageMeta(messageId, meta);
+    
+    // 全局同步
+    if (meta.relationships?.length > 0) {
+        horaeManager._mergeRelationships(meta.relationships);
+    }
+    if (meta.scene?.scene_desc && meta.scene?.location) {
+        horaeManager._updateLocationMemory(meta.scene.location, meta.scene.scene_desc);
+    }
     
     // 同步写入正文标签
     injectHoraeTagToMessage(messageId, meta);
@@ -6373,6 +6461,24 @@ function buildHoraeTagFromMeta(meta) {
                 lines.push(`agenda:${datePart}${item.text}`);
             }
         }
+    }
+
+    if (meta.relationships?.length > 0) {
+        for (const r of meta.relationships) {
+            if (r.from && r.to && r.type) {
+                lines.push(`rel:${r.from}>${r.to}=${r.type}${r.note ? '|' + r.note : ''}`);
+            }
+        }
+    }
+
+    if (meta.mood && Object.keys(meta.mood).length > 0) {
+        for (const [char, emotion] of Object.entries(meta.mood)) {
+            if (char && emotion) lines.push(`mood:${char}=${emotion}`);
+        }
+    }
+
+    if (meta.scene?.scene_desc) {
+        lines.push(`scene_desc:${meta.scene.scene_desc}`);
     }
     
     if (lines.length === 0) return '';
@@ -6667,6 +6773,24 @@ function initSettingsEvents() {
         updateTokenCounter();
     });
 
+    $('#horae-setting-anti-paraphrase').on('change', function() {
+        settings.antiParaphraseMode = this.checked;
+        saveSettings();
+        horaeManager.init(getContext(), settings);
+        _refreshSystemPromptDisplay();
+        updateTokenCounter();
+    });
+
+    $('#horae-setting-sideplay-mode').on('change', function() {
+        settings.sideplayMode = this.checked;
+        saveSettings();
+        // 刷新所有面板以显示/隐藏番外按钮
+        document.querySelectorAll('.horae-message-panel').forEach(p => {
+            const btn = p.querySelector('.horae-btn-sideplay');
+            if (btn) btn.style.display = settings.sideplayMode ? '' : 'none';
+        });
+    });
+
     // 自动摘要折叠面板
     $('#horae-autosummary-collapse-toggle').on('click', function() {
         const body = $('#horae-autosummary-collapse-body');
@@ -6723,6 +6847,8 @@ function initSettingsEvents() {
         settings.autoSummaryModel = this.value;
         saveSettings();
     });
+
+    $('#horae-btn-test-sub-api').on('click', testSubApiConnection);
     
     $('#horae-setting-panel-width').on('change', function() {
         let val = parseInt(this.value) || 100;
@@ -7168,6 +7294,11 @@ function syncSettingsToUI() {
     $('#horae-setting-send-mood').prop('checked', !!settings.sendMood);
     $('#horae-mood-prompt-group').toggle(!!settings.sendMood);
     
+    // 反转述模式
+    $('#horae-setting-anti-paraphrase').prop('checked', !!settings.antiParaphraseMode);
+    // 番外模式
+    $('#horae-setting-sideplay-mode').prop('checked', !!settings.sideplayMode);
+
     // 自动摘要
     $('#horae-setting-auto-summary').prop('checked', !!settings.autoSummaryEnabled);
     $('#horae-auto-summary-options').toggle(!!settings.autoSummaryEnabled);
@@ -7512,6 +7643,8 @@ async function generateForSummary(prompt) {
         const missing = [!hasUrl && 'API地址', !hasKey && 'API密钥', !hasModel && '模型名称'].filter(Boolean).join('、');
         console.warn(`[Horae] 副API已勾选但缺少: ${missing}，回退主API`);
         showToast(`副API缺少${missing}，已回退主API`, 'warning');
+    } else if (!useCustom) {
+        console.log('[Horae] 副API未启用，使用主API (generateRaw)');
     }
     return await getContext().generateRaw(prompt, null, false, false);
 }
@@ -7541,6 +7674,52 @@ function _syncSubApiSettingsFromDom() {
         }
         if (changed) saveSettings();
     } catch (_) {}
+}
+
+/** 测试副API连接（仅查询模型列表，不消耗生成次数） */
+async function testSubApiConnection() {
+    _syncSubApiSettingsFromDom();
+    const rawUrl = (settings.autoSummaryApiUrl || '').trim();
+    const apiKey = (settings.autoSummaryApiKey || '').trim();
+    const model = (settings.autoSummaryModel || '').trim();
+    if (!rawUrl || !apiKey) {
+        showToast('请先填写 API 地址和密钥', 'warning');
+        return;
+    }
+    const btn = document.getElementById('horae-btn-test-sub-api');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 测试中...'; }
+    try {
+        const isGemini = /gemini/i.test(model);
+        let testUrl, headers;
+        if (isGemini) {
+            let base = rawUrl.replace(/\/+$/, '').replace(/\/chat\/completions$/i, '').replace(/\/v\d+(beta\d*|alpha\d*)?(?:\/.*)?$/i, '');
+            const isGoogle = /googleapis\.com|generativelanguage/i.test(base);
+            testUrl = `${base}/v1beta/models` + (isGoogle ? `?key=${apiKey}` : '');
+            headers = { 'Content-Type': 'application/json' };
+            if (!isGoogle) headers['Authorization'] = `Bearer ${apiKey}`;
+        } else {
+            let base = rawUrl.replace(/\/+$/, '').replace(/\/chat\/completions$/i, '');
+            if (!base.endsWith('/v1')) base = base.replace(/\/+$/, '') + '/v1';
+            testUrl = `${base}/models`;
+            headers = { 'Authorization': `Bearer ${apiKey}` };
+        }
+        const resp = await fetch(testUrl, { method: 'GET', headers, signal: AbortSignal.timeout(15000) });
+        if (!resp.ok) {
+            const errText = await resp.text().catch(() => '');
+            throw new Error(`${resp.status}: ${errText.slice(0, 150)}`);
+        }
+        const data = await resp.json();
+        const models = isGemini
+            ? (data.models || []).map(m => m.name?.replace('models/', '') || m.displayName)
+            : (data.data || data || []).map(m => m.id || m.name);
+        const matchStr = model && models.some(m => m && m.toLowerCase().includes(model.toLowerCase()))
+            ? `✓ 找到目标模型「${model}」` : (model ? `⚠ 未在列表中找到「${model}」，请确认模型名` : '');
+        showToast(`副API连接成功！可用模型 ${models.length} 个${matchStr ? '。' + matchStr : ''}`, 'success');
+    } catch (err) {
+        showToast(`副API连接失败: ${err.message || err}`, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-plug-circle-check"></i> 测试副API连接'; }
+    }
 }
 
 /** 直接请求API端点，完全独立于酒馆主连接，支持真并行 */
@@ -7781,6 +7960,7 @@ async function checkAutoSummary() {
         let bufferTokens = 0;
         for (let i = 0; i < cutoff; i++) {
             if (chat[i]?.is_hidden || summarizedIndices.has(i)) continue;
+            if (chat[i]?.horae_meta?._skipHorae) continue;
             if (!chat[i]?.is_user && isEmptyOrCodeLayer(chat[i]?.mes)) continue;
             bufferMsgIndices.push(i);
             if (bufferMode === 'tokens') {
@@ -8875,6 +9055,9 @@ async function onMessageReceived(messageId) {
     
     if (!message || message.is_user) return;
     
+    // 番外标记的消息跳过处理
+    if (message.horae_meta?._skipHorae) return;
+    
     // regenerate/swipe 检测：若已有 meta 则为重新生成，清空旧数据再解析
     const isRegenerate = !!(message.horae_meta?.timestamp?.absolute);
     if (isRegenerate) {
@@ -9009,9 +9192,24 @@ async function onPromptReady(eventData) {
         }
 
         const rulesPrompt = horaeManager.generateSystemPromptAddition();
+
+        let antiParaRef = '';
+        if (settings.antiParaphraseMode && chat?.length) {
+            for (let i = chat.length - 1; i >= 0; i--) {
+                if (chat[i].is_user && chat[i].mes) {
+                    const cleaned = chat[i].mes.replace(/<horae>[\s\S]*?<\/horae>/gi, '').replace(/<horaeevent>[\s\S]*?<\/horaeevent>/gi, '').trim();
+                    if (cleaned) {
+                        const truncated = cleaned.length > 2000 ? cleaned.slice(0, 2000) + '…' : cleaned;
+                        antiParaRef = `\n【反转述参考 - USER上一条消息内容】\n${truncated}\n（请将以上USER行为一并纳入本条<horae>结算）`;
+                    }
+                    break;
+                }
+            }
+        }
+
         const combinedPrompt = recallPrompt
-            ? `${dataPrompt}\n${recallPrompt}\n${rulesPrompt}`
-            : `${dataPrompt}\n${rulesPrompt}`;
+            ? `${dataPrompt}\n${recallPrompt}${antiParaRef}\n${rulesPrompt}`
+            : `${dataPrompt}${antiParaRef}\n${rulesPrompt}`;
 
         const position = settings.injectionPosition;
         if (position === 0) {

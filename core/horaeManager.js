@@ -145,6 +145,7 @@ class HoraeManager {
         for (let i = 0; i < end; i++) {
             const meta = chat[i].horae_meta;
             if (!meta) continue;
+            if (meta._skipHorae) continue;
             
             if (meta.timestamp?.story_date) {
                 state.timestamp.story_date = meta.timestamp.story_date;
@@ -424,6 +425,7 @@ class HoraeManager {
         
         for (let i = 0; i < end; i++) {
             const meta = chat[i].horae_meta;
+            if (meta?._skipHorae) continue;
             
             const metaEvents = meta?.events || (meta?.event ? [meta.event] : []);
             
@@ -1427,6 +1429,11 @@ class HoraeManager {
 
         if (locMem[currentLocation]) return tag(currentLocation);
 
+        // 曾用名匹配：检查所有条目的 _aliases 数组
+        for (const [name, info] of Object.entries(locMem)) {
+            if (info._aliases?.includes(currentLocation)) return tag(name);
+        }
+
         const SEP = /[·・\-\/|]/;
         const parts = currentLocation.split(SEP).map(s => s.trim()).filter(Boolean);
 
@@ -1434,6 +1441,9 @@ class HoraeManager {
             for (let i = parts.length - 1; i >= 1; i--) {
                 const partial = parts.slice(0, i).join('·');
                 if (locMem[partial]) return tag(partial);
+                for (const [name, info] of Object.entries(locMem)) {
+                    if (info._aliases?.includes(partial)) return tag(name);
+                }
             }
         }
 
@@ -2065,7 +2075,7 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
 - 现代：年/月/日 时:分（如 2026/2/4 15:00）
 - 历史：该年代日期（如 1920/3/15 14:00）
 - 奇幻/架空：该世界观日历（如 霜降月第三日 黄昏）
-${this.generateLocationMemoryPrompt()}${this.generateCustomTablesPrompt()}${this.generateRelationshipPrompt()}${this.generateMoodPrompt()}
+${this.generateLocationMemoryPrompt()}${this.generateCustomTablesPrompt()}${this.generateRelationshipPrompt()}${this.generateMoodPrompt()}${this._generateAntiParaphrasePrompt()}
 ═══ 最终强制提醒 ═══
 你的回复末尾必须包含 <horae>...</horae> 和 <horaeevent>...</horaeevent> 两个标签。
 缺少任何一个标签=不合格。
@@ -2373,6 +2383,21 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
             return '\n' + custom.replace(/\{\{user\}\}/gi, userName).replace(/\{\{char\}\}/gi, charName);
         }
         return '\n' + this.getDefaultRelationshipPrompt();
+    }
+
+    _generateAntiParaphrasePrompt() {
+        if (!this.settings?.antiParaphraseMode) return '';
+        const userName = this.context?.name1 || '主角';
+        return `
+═══ 反转述模式（Anti-Paraphrase） ═══
+当前用户使用反转述写法：${userName}的行动/对话由${userName}自行在USER消息中描写，你（AI）不再重复描述${userName}的部分。
+因此，你在撰写本回合的<horae>标签时，必须把"紧接在你这条回复之前的那条USER消息"中发生的情节也一并纳入结算：
+  ✦ USER消息中出现的物品获取/消耗 → 写入对应item:/item-:行
+  ✦ USER消息中出现的场景转移 → 更新location:
+  ✦ USER消息中出现的NPC互动/好感变化 → 更新affection:
+  ✦ USER消息中出现的情节推进 → 在<horaeevent>中一并概括
+  ✦ 总之：本条<horae>应同时覆盖"上一条USER消息"和"你本条AI回复"两部分的所有变化
+`;
     }
 
     generateMoodPrompt() {

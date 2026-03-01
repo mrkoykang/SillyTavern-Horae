@@ -1268,6 +1268,31 @@
     color: var(--horae-primary-light);
 }
 
+/* 番外/小剧场 */
+.horae-message-panel.horae-sideplay {
+    opacity: 0.6;
+    border-left: 3px solid var(--horae-text-muted);
+}
+.horae-message-panel.horae-sideplay .horae-panel-toggle {
+    background: repeating-linear-gradient(
+        -45deg,
+        transparent, transparent 8px,
+        rgba(128,128,128,0.06) 8px, rgba(128,128,128,0.06) 16px
+    );
+}
+.horae-sideplay-badge {
+    background: var(--horae-text-muted);
+    color: var(--horae-bg);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-right: 4px;
+    font-weight: bold;
+}
+.horae-btn-sideplay {
+    font-size: 14px;
+}
+
 .horae-panel-content {
     padding: 12px;
     background: var(--horae-bg-secondary);
