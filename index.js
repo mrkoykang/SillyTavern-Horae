@@ -3,7 +3,7 @@
  * 基于时间锚点的AI记忆增强系统
  * 
  * 作者: SenriYuki
- * 版本: 1.8.1
+ * 版本: 1.8.2
  */
 
 import { renderExtensionTemplateAsync, getContext, extension_settings } from '/scripts/extensions.js';
@@ -20,7 +20,7 @@ import { calculateRelativeTime, calculateDetailedRelativeTime, formatRelativeTim
 const EXTENSION_NAME = 'horae';
 const EXTENSION_FOLDER = `third-party/SillyTavern-Horae`;
 const TEMPLATE_PATH = `${EXTENSION_FOLDER}/assets/templates`;
-const VERSION = '1.8.1';
+const VERSION = '1.8.2';
 
 // 配套正则规则（自动注入ST原生正则系统）
 const HORAE_REGEX_RULES = [
@@ -4469,8 +4469,9 @@ function updateRpgDisplay() {
     const sendAttrs = settings.sendRpgAttributes !== false;
     const sendSkills = settings.sendRpgSkills !== false;
     const attrCfg = settings.rpgAttributeConfig || [];
-    const moduleCount = [sendBars, sendAttrs && attrCfg.length > 0, sendSkills].filter(Boolean).length;
-    const useCardLayout = moduleCount >= 2;
+    const hasAttrModule = sendAttrs && attrCfg.length > 0;
+    const moduleCount = [sendBars, hasAttrModule, sendSkills].filter(Boolean).length;
+    const useCardLayout = hasAttrModule || moduleCount >= 2;
 
     // 配置区始终渲染
     renderBarConfig();
