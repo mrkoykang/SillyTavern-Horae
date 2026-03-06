@@ -3,7 +3,7 @@
  * 基于时间锚点的AI记忆增强系统
  * 
  * 作者: SenriYuki
- * 版本: 1.8.4
+ * 版本: 1.8.5
  */
 
 import { renderExtensionTemplateAsync, getContext, extension_settings } from '/scripts/extensions.js';
@@ -20,7 +20,7 @@ import { calculateRelativeTime, calculateDetailedRelativeTime, formatRelativeTim
 const EXTENSION_NAME = 'horae';
 const EXTENSION_FOLDER = `third-party/SillyTavern-Horae`;
 const TEMPLATE_PATH = `${EXTENSION_FOLDER}/assets/templates`;
-const VERSION = '1.8.4';
+const VERSION = '1.8.5';
 
 // 配套正则规则（自动注入ST原生正则系统）
 const HORAE_REGEX_RULES = [
@@ -1840,7 +1840,16 @@ async function compressSelectedTimelineEvents() {
             return;
         }
         
-        const summaryText = response.trim();
+        let summaryText = response.trim()
+            .replace(/<horae>[\s\S]*?<\/horae>/gi, '')
+            .replace(/<horaeevent>[\s\S]*?<\/horaeevent>/gi, '')
+            .replace(/<!--horae[\s\S]*?-->/gi, '')
+            .trim();
+        if (!summaryText) {
+            overlay.remove();
+            showToast('AI摘要内容为空', 'warning');
+            return;
+        }
         
         // 非破坏性压缩：将原始事件和摘要存入 autoSummaries
         const firstMsg = chat[0];
@@ -1932,6 +1941,7 @@ async function deleteSelectedTimelineEvents() {
     if (!confirmed) return;
     
     const chat = horaeManager.getChat();
+    const firstMeta = chat?.[0]?.horae_meta;
     
     // 按消息分组，倒序删除事件索引
     const msgMap = new Map();
@@ -1939,6 +1949,17 @@ async function deleteSelectedTimelineEvents() {
         const [msgIdx, evtIdx] = key.split('-').map(Number);
         if (!msgMap.has(msgIdx)) msgMap.set(msgIdx, []);
         msgMap.get(msgIdx).push(evtIdx);
+    }
+    
+    // 收集被删除的摘要事件的 summaryId，用于级联清理
+    const deletedSummaryIds = new Set();
+    for (const [msgIdx, evtIndices] of msgMap) {
+        const meta = chat[msgIdx]?.horae_meta;
+        if (!meta?.events) continue;
+        for (const ei of evtIndices) {
+            const evt = meta.events[ei];
+            if (evt?._summaryId) deletedSummaryIds.add(evt._summaryId);
+        }
     }
     
     for (const [msgIdx, evtIndices] of msgMap) {
@@ -1957,9 +1978,32 @@ async function deleteSelectedTimelineEvents() {
         }
     }
     
+    // 级联清理：删除摘要事件时同步清理 autoSummaries、_compressedBy、is_hidden
+    if (deletedSummaryIds.size > 0 && firstMeta?.autoSummaries) {
+        for (const summaryId of deletedSummaryIds) {
+            const idx = firstMeta.autoSummaries.findIndex(s => s.id === summaryId);
+            let removedEntry = null;
+            if (idx !== -1) {
+                removedEntry = firstMeta.autoSummaries.splice(idx, 1)[0];
+            }
+            for (let i = 0; i < chat.length; i++) {
+                const meta = chat[i]?.horae_meta;
+                if (!meta?.events) continue;
+                for (const evt of meta.events) {
+                    if (evt._compressedBy === summaryId) delete evt._compressedBy;
+                }
+            }
+            if (removedEntry) {
+                const indices = getSummaryMsgIndices(removedEntry);
+                await setMessagesHidden(chat, indices, false);
+            }
+        }
+    }
+    
     await getContext().saveChat();
     showToast(`已删除 ${selectedTimelineEvents.size} 条剧情轨迹`, 'success');
     exitTimelineMultiSelect();
+    updateTimelineDisplay();
     updateStatusDisplay();
 }
 
@@ -9828,7 +9872,7 @@ async function checkAutoSummary() {
         }));
         
         // 完整隐藏范围（包含中间所有 USER 消息）
-        const hideMin = Math.max(1, msgIndices[0]);
+        const hideMin = msgIndices[0];
         const hideMax = msgIndices[msgIndices.length - 1];
 
         const summaryId = `as_${Date.now()}`;
@@ -9844,7 +9888,6 @@ async function checkAutoSummary() {
         
         // 标记原始事件为已压缩（active 时隐藏原始事件显示摘要）
         for (const e of bufferEvents) {
-            if (e.msgIdx === 0) continue;
             const meta = chat[e.msgIdx]?.horae_meta;
             if (meta?.events?.[e.evtIdx]) {
                 meta.events[e.evtIdx]._compressedBy = summaryId;
