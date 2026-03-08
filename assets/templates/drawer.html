@@ -10,7 +10,7 @@
                 <i class="fa-regular fa-clock"></i>
                 Horae 时光记忆
             </div>
-            <span class="horae-version">v1.8.7</span>
+            <span class="horae-version">v1.9.0</span>
         </div>
         
         <!-- 标签页导航 -->
@@ -675,7 +675,7 @@
                                     保留最近消息数
                                     <input type="number" id="horae-setting-auto-summary-keep" min="3" max="100" value="10">
                                 </label>
-                                <span class="horae-setting-sub-hint">最近N条消息的事件不会被自动压缩，保留近期剧情细节。</span>
+                                <span class="horae-setting-sub-hint">最近N条消息<b>绝对不会</b>被摘要。确保近期剧情细节完整保留。</span>
                             </div>
                             <div class="horae-setting-item">
                                 <label>
@@ -692,6 +692,14 @@
                                     <input type="number" id="horae-setting-auto-summary-limit" min="5" max="99999" value="20">
                                 </label>
                                 <span class="horae-setting-sub-hint" id="horae-auto-summary-limit-hint">超过此上限时触发自动压缩。</span>
+                            </div>
+                            <div class="horae-setting-hint" style="margin:8px 0; padding:8px; border-radius:6px; background:var(--horae-bg-secondary); font-size:11px; line-height:1.6;">
+                                <i class="fa-solid fa-lightbulb" style="color:var(--horae-accent);"></i>
+                                <b>举例</b>：假设保留=10，缓冲上限=20（楼层模式）<br>
+                                → 你聊到第 50 楼时：第 41-50 楼<b>绝对保留</b>不摘要<br>
+                                → 第 1-40 楼中，未被摘要的部分如果 <b>超过 20 楼</b>就触发一次自动摘要<br>
+                                → 每次摘要按照下方设置的批次上限（消息条数或Token数）处理一批，剩余的留到下一轮<br>
+                                简单理解：<b>保留 + 缓冲 = 多少楼之后才开始摘要</b>
                             </div>
                             <div class="horae-setting-item" style="border-top: 1px solid var(--horae-border); padding-top: 8px; margin-top: 4px;">
                                 <label>
@@ -731,10 +739,16 @@
                                         placeholder="sk-...">
                                 </div>
                                 <div class="horae-setting-item">
-                                    <label>模型名称</label>
-                                    <input type="text" id="horae-setting-auto-summary-model" class="horae-edit-field"
-                                        placeholder="gpt-4o-mini">
-                                    <span class="horae-setting-sub-hint">低成本模型即可，如 gpt-4o-mini、deepseek-chat 等。</span>
+                                    <label>模型</label>
+                                    <div style="display:flex; gap:4px; align-items:center;">
+                                        <select id="horae-setting-auto-summary-model" class="horae-edit-field" style="flex:1; min-width:0;">
+                                            <option value="">-- 请先拉取模型列表 --</option>
+                                        </select>
+                                        <button id="horae-btn-fetch-models" class="horae-btn" style="white-space:nowrap; padding:4px 8px;" title="拉取模型列表">
+                                            <i class="fa-solid fa-arrows-rotate"></i>
+                                        </button>
+                                    </div>
+                                    <span class="horae-setting-sub-hint">填好地址和密钥后点击 <i class="fa-solid fa-arrows-rotate"></i> 拉取。低成本模型即可。</span>
                                 </div>
                                 <div class="horae-setting-item" style="margin-top:6px;">
                                     <button id="horae-btn-test-sub-api" class="horae-btn" style="width:100%;">
@@ -823,11 +837,16 @@
                                     </label>
                                 </div>
                                 <div class="horae-setting-item">
-                                    <label>
-                                        Embedding 模型名称
-                                        <input type="text" id="horae-setting-vector-api-model" placeholder="text-embedding-v3">
-                                    </label>
-                                    <span class="horae-setting-sub-hint">Qwen: text-embedding-v3 / text-embedding-v2<br>OpenAI: text-embedding-3-small / text-embedding-3-large</span>
+                                    <label>Embedding 模型</label>
+                                    <div style="display:flex; gap:4px; align-items:center;">
+                                        <select id="horae-setting-vector-api-model" class="horae-edit-field" style="flex:1; min-width:0;">
+                                            <option value="">-- 请先拉取模型列表 --</option>
+                                        </select>
+                                        <button id="horae-btn-fetch-embed-models" class="horae-btn" style="white-space:nowrap; padding:4px 8px;" title="拉取模型列表">
+                                            <i class="fa-solid fa-arrows-rotate"></i>
+                                        </button>
+                                    </div>
+                                    <span class="horae-setting-sub-hint">填好地址和密钥后点击 <i class="fa-solid fa-arrows-rotate"></i> 拉取。<br>推荐: text-embedding-v3 (Qwen) / text-embedding-3-small (OpenAI)</span>
                                 </div>
                                 <div class="horae-setting-item">
                                     <label>
@@ -870,11 +889,16 @@
                                         </label>
                                     </div>
                                     <div class="horae-setting-item">
-                                        <label>
-                                            Rerank 模型名称
-                                            <input type="text" id="horae-setting-vector-rerank-model" placeholder="gte-rerank">
-                                        </label>
-                                        <span class="horae-setting-sub-hint">Qwen: gte-rerank / gte-rerank-v2<br>Jina: jina-reranker-v2-base-multilingual</span>
+                                        <label>Rerank 模型</label>
+                                        <div style="display:flex; gap:4px; align-items:center;">
+                                            <select id="horae-setting-vector-rerank-model" class="horae-edit-field" style="flex:1; min-width:0;">
+                                                <option value="">-- 请先拉取模型列表 --</option>
+                                            </select>
+                                            <button id="horae-btn-fetch-rerank-models" class="horae-btn" style="white-space:nowrap; padding:4px 8px;" title="拉取模型列表">
+                                                <i class="fa-solid fa-arrows-rotate"></i>
+                                            </button>
+                                        </div>
+                                        <span class="horae-setting-sub-hint">填好地址和密钥后点击 <i class="fa-solid fa-arrows-rotate"></i> 拉取。<br>推荐: gte-rerank (Qwen) / jina-reranker-v2-base-multilingual (Jina)</span>
                                     </div>
                                     <div class="horae-setting-item" style="margin-top: 4px;">
                                         <label>
@@ -920,6 +944,17 @@
                                     <input type="number" id="horae-setting-vector-fulltext-threshold" min="0.6" max="1.0" step="0.01" value="0.9">
                                 </label>
                                 <span class="horae-setting-sub-hint">只有相似度达到此值的高置信度结果才会发送全文，避免不相关内容浪费 Token。</span>
+                            </div>
+                            <div class="horae-setting-item">
+                                <label>
+                                    全文剔除标签
+                                    <input type="text" id="horae-setting-vector-strip-tags" class="horae-edit-field" placeholder="snow, theater, side">
+                                </label>
+                                <span class="horae-setting-sub-hint">
+                                    用逗号分隔标签名。全文回顾和 Rerank 全文精排时，这些标签包裹的内容会被整段移除。<br>
+                                    例：填 <code>snow, theater</code> 会剔除 <code>&lt;snow&gt;...&lt;/snow&gt;</code> 和 <code>&lt;theater&gt;...&lt;/theater&gt;</code> 的全部内容。<br>
+                                    适用于在正文中写小剧场/旁白等不想被 AI 召回的内容。
+                                </span>
                             </div>
                             <div class="horae-vector-status">
                                 <span id="horae-vector-status-text">模型未加载</span>
@@ -1129,7 +1164,7 @@
                 </div>
                 
                 <div class="horae-about">
-                    <p>Horae v1.8.7 | 作者: SenriYuki</p>
+                    <p>Horae v1.9.0 | 作者: SenriYuki</p>
                     <p>基于时间锚点的AI记忆增强系统</p>
                 </div>
             </div>

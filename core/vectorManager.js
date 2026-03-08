@@ -263,6 +263,7 @@ export class VectorManager {
 
     async addMessage(messageIndex, meta) {
         if (!this.isReady || !this.chatId) return;
+        if (meta?._skipHorae) return;
 
         const doc = this.buildVectorDocument(meta);
         if (!doc) return;
@@ -309,6 +310,7 @@ export class VectorManager {
         for (let i = 0; i < chat.length; i++) {
             const meta = chat[i].horae_meta;
             if (!meta || chat[i].is_user) continue;
+            if (meta._skipHorae) continue;
             const doc = this.buildVectorDocument(meta);
             if (!doc) continue;
             const hash = this._hashString(doc);
@@ -602,9 +604,10 @@ export class VectorManager {
             if (rerankQuery) {
                 try {
                     const useFullText = !!settings.vectorRerankFullText;
+                    const _stripTags = settings.vectorStripTags || '';
                     const rerankDocs = rerankCandidates.map(r => {
                         if (useFullText) {
-                            const fullText = this._extractCleanText(chat[r.messageIndex]?.mes);
+                            const fullText = this._extractCleanText(chat[r.messageIndex]?.mes, _stripTags);
                             return fullText || r.document;
                         }
                         return r.document;
@@ -646,7 +649,7 @@ export class VectorManager {
         const currentDate = state.timestamp?.story_date;
         const fullTextCount = Math.min(settings.vectorFullTextCount ?? 3, topK);
         const fullTextThreshold = settings.vectorFullTextThreshold ?? 0.9;
-        const recallText = this._buildRecallText(results, currentDate, chat, fullTextCount, fullTextThreshold);
+        const recallText = this._buildRecallText(results, currentDate, chat, fullTextCount, fullTextThreshold, settings.vectorStripTags || '');
         console.log(`[Horae Vector] 召回文本 (${recallText.length}字):\n${recallText}`);
         return recallText;
     }
@@ -1200,7 +1203,7 @@ export class VectorManager {
         return results;
     }
 
-    _buildRecallText(results, currentDate, chat, fullTextCount = 3, fullTextThreshold = 0.9) {
+    _buildRecallText(results, currentDate, chat, fullTextCount = 3, fullTextThreshold = 0.9, stripTags = '') {
         const lines = ['[记忆回溯——以下为与当前情境相关的历史片段，仅供参考，非当前上下文]'];
 
         for (let rank = 0; rank < results.length; rank++) {
@@ -1211,7 +1214,7 @@ export class VectorManager {
             const isFullText = fullTextCount > 0 && rank < fullTextCount && r.similarity >= fullTextThreshold;
 
             if (isFullText) {
-                const rawText = this._extractCleanText(chat[r.messageIndex]?.mes);
+                const rawText = this._extractCleanText(chat[r.messageIndex]?.mes, stripTags);
                 if (rawText) {
                     const timeTag = this._buildTimeTag(meta?.timestamp, currentDate);
                     lines.push(`#${r.messageIndex} ${timeTag ? timeTag + ' ' : ''}[全文回顾]\n${rawText}`);
@@ -1264,13 +1267,19 @@ export class VectorManager {
         return lines.length > 1 ? lines.join('\n') : '';
     }
 
-    _extractCleanText(mes) {
+    _extractCleanText(mes, stripTags) {
         if (!mes) return '';
-        return mes
+        let text = mes
             .replace(/<think>[\s\S]*?<\/think>/gi, '')
-            .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-            .replace(/<[^>]*>/g, '')
-            .trim();
+            .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
+        if (stripTags) {
+            const tags = stripTags.split(/[,，\s]+/).map(t => t.trim()).filter(Boolean);
+            for (const tag of tags) {
+                const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                text = text.replace(new RegExp(`<${escaped}>[\\s\\S]*?</${escaped}>`, 'gi'), '');
+            }
+        }
+        return text.replace(/<[^>]*>/g, '').trim();
     }
 
     /**
