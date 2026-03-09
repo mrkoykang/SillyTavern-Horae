@@ -2,243 +2,163 @@
 
 ![Image](https://github.com/SenriYuki/SillyTavern-Horae/blob/main/HoraeLogo.jpg)
 
-> *Horae（荷赖）— 希腊神话中掌管时序的女神*
-
-长篇 RP 玩家的老毛病你一定遇到过 —— AI 的记忆约等于金鱼：昨天的事说成今天早上，连几天前发生的事都永远说是昨天；上一幕穿校服下一幕突然便服；NPC关系倒置；送出去的礼物凭空消失，丢掉的东西又回到手里。
-
-**Horae 用结构化的时间锚点，给你的 AI 装上一本靠谱的记忆账本。**
-
----
-
-## 亮点功能
-
-**RPG 模式 —— 血条、技能、状态一目了然（新）**
-为西幻 / 修真 / 战斗向角色卡量身打造的 RPG 系统。开启后 AI 会在 `<horaerpg>` 标签中输出角色属性条（HP/MP/SP 及自定义属性）、状态异常和技能变化。底部消息栏上方自动渲染简易 HUD 状态条，顶部面板新增 RPG 分页展示详细属性和技能列表。属性条名称、颜色均可自定义，技能与 NPC 角色联动。关闭时不注入提示词、不消耗 Token。支持在自助美化工具中单独调整 RPG 状态栏的背景色和透明度。
-
-**向量记忆引擎 —— 找回被折叠的细节（新）**
-专为搭配「自动摘要&隐藏」设计的智能外脑！几十万字长篇压缩后细节全丢？现在当对话触及历史事件时，插件会自动从被隐藏的旧时间线中精准召回相关片段。全程依托 Web Worker 纯本地运算，零 API 消耗，丝滑不卡顿界面（首次运行需下载 30-60MB 模型缓存，提供中文优化的 bge 和多语言 e5 双模型可选⚠ 2GB 以下手机或云酒馆建议別用）。
-
-**新手导航 —— 第一次用也不迷路（新）**
-首次使用 Horae 的用户会自动触发交互式导览，逐步介绍各功能区域和设置项。从基本概念到进阶功能（上下文深度、注入位置、自定义提示词等）一次讲清。老用户可在设置中随时「重新开始教学」。
-
-**自助美化工具 —— 不会写 CSS 也能自定义（新）**
-为不会写代码的用户设计的可视化美化面板。用色相条、饱和度/亮度滑杆快速调色，日夜模式一键切换，还能导入图片 URL 装饰抽屉头部、背景和底部消息栏。所有修改实时预览，满意后保存即可导出分享。当然，也保留了主题 JSON 导入/导出和手写 CSS 给进阶用户。（⚠️做 Horae 插件的美化不用跟我要授权，请随意。）
-
-**场景记忆 —— 酒馆不再一夜变样（新）**
-AI 描写同一个地点，上一回有壁炉这一回没了？场景记忆会记录地点的固定物理特征，下次进入同一场景时自动注入。智能匹配地名（「酒馆·大厅」自动回退到「酒馆」），只发送匹配到的那一条描述，未命中时零注入。
-
-**情绪 & 关系网络 —— AI 读懂人际场（新）**
-情绪追踪让 AI 记住角色当前的心理状态，不再前一秒哭后一秒笑。关系网络记录人物之间的关系类型和变化，再也不会把敌人写成朋友。两者都是变化驱动，没变化时零输出。
-
-**自动摘要 —— 长篇自动省 Token**
-聊了几百楼还在全量发送？自动摘要在后台自动压缩旧消息为一段摘要，原始楼层 `/hide` 省 Token。摘要和原始时间线可随时一键切换，所见即所发。还能配一个低成本的**独立 API** 做真并行，摘要生成完全不占主连接。
-
-**向量记忆 —— 让 AI 回想起被隐藏的细节（新）**
-搭配自动摘要使用的智能回忆系统。摘要压缩后的旧消息细节不会丢失——当对话涉及历史事件时，插件会自动从被隐藏的时间线中精准召回相关片段注入上下文。全程**本地运算**，不消耗额外 API。支持中文优化和多语言两种模型选择。
-
-**AI 智能摘要**
-旧档案没用过 Horae？一键批量扫描全部历史消息，AI 自动提取剧情事件和物品变化，生成完整的时间线。支持自定义每批 Token 上限适配不同模型，不满意可一键撤销。
-
-**告别"永远的昨天"**
-插件自动计算相对时间，注入"昨天"、"上周三"、"上个月15号"这样的生活化表述。AI 终于能分清前天和上周了。支持现代、历史、奇幻架空等多种日历体系。
-
-**衣服不再乱穿**
-每位角色的当前穿着被锁定记录，且只发送在场角色的服装。角色不会再莫名其妙换昨天的衣服，也不会把不在场的人的衣服发给 AI 浪费 token。
-
-**NPC 不会越写越糊**
-外貌、性格、关系等字段独立追踪。年龄还会随剧情时间自动推进。严格订立了关系的 prompt，不再上一秒 Char 欠 User 钱，下一秒 AI 输出说是 User 欠 Char 钱来颠倒关系。
-
-**物品栏终于靠谱了**
-带唯一编号的物品系统，分一般/重要/关键三级。智能解析数量变化（5斤→4斤），自动检测"已消耗"等状态并移除。
-
-**待办事项防遗忘**
-AI 可以自动记录剧情中的约定和伏笔，完成后自动删除。再也不用担心 AI 忘记两周前约好的约会。
-
-**宝宝辅食级自定义表格**
-Excel 风格的自由表格，想加行加行想加列加列，配上填写提示词让 AI 自动填。课程表、角色关系、任务清单……你能想到的都能做。删除消息时 AI 填的内容自动回退，你自己填的始终保留。
-
-**变化驱动，省 Token**
-AI 只输出本回合变化的信息，不再每次重复整个状态。每种数据都有明确的触发规则，减少无效输出。**不用额外耗费生成次数** —— 插件在 AI 正常回复时自动解析记忆节点，零额外开销。
-
-**截断/改写也不怕**
-中途被截断或自己手动改写了部分剧情？底部栏内置 **AI 分析**功能，只需一次生成就能智能补全该条消息的记忆节点。
-
-**界面简单，萌新友好**
-底部栏一目了然，顶部面板分页清晰。无需复杂配置，安装即用。
-
-**发送内容自由控制**
-在设置中自由选择哪些数据发送给 AI、哪些不发送 —— 不需要角色追踪？关掉。不需要物品栏？关掉。按需组合，节省 token。
-
----
-
-## 快速安装
-
-1. 打开 SillyTavern → 顶部扩展面板（积木图标）→ 「安装扩展」
-2. 粘贴本仓库的 Git 链接，点击安装
-3. 安装完成后刷新页面即可使用
-
-> 配套正则会在插件首次加载时**自动注入**，无需手动导入。
-
-
-
----
-
-## v1.1.0 更新内容
-
-- **AI 智能摘要**：批量分析历史消息，自动提取剧情事件和物品，支持自定义 Token 分批上限，可一键撤销
-- **Token计数器**：显示发送给AI的总prompt量，位置在设置下方。附带一提，目前插件果奔时发送prompt 3,591 Token
-- **swipe适配**：修复了右滑生成新分页时，旧分页的记忆数据会被带入新生成的问题。现在swipe生成时会自动排除当前分页的旧记忆，确保AI基于正确的上下文生成全新的剧情分支
-- **美化兼容**：插件 UI 样式与外部美化主题隔离，不再出现黑底黑字或白底白字
-- **正则修改**：把<horaeevent>也设置为不发送给AI，更省Token
-- **描述修正**：把某些功能的描述更正为更准确的描述方式
-
----
-
-## v1.2.0 更新内容
-
-- **自定义提示词**：设置中新增提示词编辑器，可自由修改系统注入提示词和 AI 摘要提示词，支持 `{{user}}`/`{{char}}` 变量，可以一键恢复默认，方便微调
-- **AI 摘要功能新增**：现在可以中断生成了，并配置了弹窗新增「NPC 角色信息」和「好感度」勾选项。默认关闭，按需开启
-- **摘要审阅弹窗**：AI 智能摘要完成后弹出审阅视窗，按「剧情轨迹 / 物品 / 角色 / 好感度」分类展示结果。逐条删除不满意的内容，点「补充摘要」只对删除项重跑 AI
-- **好感度显示开关**：好感度区域新增小眼睛按钮，可点击隐藏/显示角色好感度
-- **好感度删除**：编辑好感度弹窗新增删除键，可以自行删除AI生成错误产生错误的项目
-- **美化兼容**：强调了CHECKBOX内部的字色，不再出现白底白勾
-
----
-
-## v1.3.0 更新内容
-
-- **全局表格**：自定义表格新增「全局」和「本地」两种作用域。全局表格跨角色卡共享，适合记录固定数据（如角色 ID 表）。点击表格名称前的图标可切换
-- **行列锁定**：右键/长按表格单元格可锁定行、列或单个格子，防止 AI 修改。锁定内容在 prompt 中标记 🔒，AI 会跳过写入
-- **一键清空表格**：表格操作栏新增橡皮擦按钮，清除所有数据区内容但保留表头，方便让 AI 重新填表
-- **主题系统**：内置「樱花粉」「森林绿」「海洋蓝」三套预设主题，下拉即用。支持导入/导出自定义美化 JSON 文件，方便社区共享主题
-- **美化导航**：新增 `THEME.md` 文档，列出全部 CSS 变量、主要容器类名和美化文件格式，方便用户自制主题
-- **日夜模式**：设置中可切换日间/夜间模式，仅影响插件界面
-- **自定义 CSS**：设置中可输入额外 CSS 代码微调插件样式
-- **右键菜单修复**：修复右键菜单透明的问题（CSS 变量作用域未覆盖 `document.body` 级元素）
-- **样式隔离增强**：所有按钮替换为插件专属类名，顶栏图标不再受浅色模式影响
-- **消息面板宽度**：设置中可自定义消息面板宽度（50-100%）
-- **正则置底**：插件正则启动时自动移至列表末尾，减少与其他正则冲突
-- **时间线多选**：时间线事件支持长按多选批量删除（避免误触做了较长的触发时间）
-
----
-
-## v1.4.0 更新内容
-
-- **好感度小数点支持**：好感度数值全面支持小数，兼容世界书等以小数步进的好感度系统
-- **顶部图标开关**：设置中新增「显示顶部导航栏图标」开关。可通过扩展面板（积木图标）中的「Horae 时光记忆」栏位重新开启
-- **时间线插入功能**：长按时间线事件弹出操作菜单，支持在上方/下方添加事件或插入摘要页。摘要页用于替代被删除的中间时间线，节省 Token 的同时保留关键信息
-- **时间线多选改进**：多选模式改为点击顶部按钮切换（原长按触发已改为插入菜单）
-- **摘要页**：新增「摘要」事件类型，无时间戳显示，空白状态提示用户"请勿删除开头时间线"
-- **表格填写提示词自定义**：自定义提示词区新增「表格填写规则提示词」编辑器，可自由修改 AI 填表规则，支持一键恢复默认
-- **表格 AI 理解增强**：发送给 AI 的表格数据现带有坐标标注（如 `[1,2]内容`）和尺寸声明，大幅减少 AI 填错位的问题
-- **表格数据清理修复**：删除表格或一键清空时，同步清除所有消息中的 AI 历史填写记录（tableContributions）和基线快照（baseData），彻底杜绝旧数据回流
-
----
-
-## v1.5.0 更新内容
-
-本次更新围绕 RP「精细度」与「长篇省 Token」展开。
-
-### 新增功能
-
-- **情绪/心理状态追踪**：追踪在场角色的情绪变化（如「紧张/不安」「开心/期待」）。底部栏自动显示当前角色的情绪标签。**Token 消耗极低**——AI 仅在情绪发生明显变化时才输出 `mood:` 标签（通常 10-20 token），无变化时零输出。设置中可开关
-- **关系网络**：记录角色之间的关系（朋友、恋人、上下级、宿敌等）。NPC 页面底部显示关系列表，支持手动编辑。底部栏的关系展示**完全由插件从数据库读取渲染，不消耗 AI 输出 Token**。AI 端采用变化驱动：仅在关系变化时输出 `rel:` 标签，已有关系无变化时零输出。设置中可开关
-- **场景记忆**：记录地点的固定物理特征，保持跨回合场景描写一致。**智能检索**——插件根据当前地点名匹配已记录的场景描述，仅发送匹配到的那一条（通常 50-150 字），而非把所有地点记忆全部发送。未匹配到任何地点时零注入。支持复合地名回退匹配（如「酒馆·大厅」→「酒馆」）
-- **自动摘要 & 隐藏**：设置中开启后，当未压缩消息数超过阈值时自动触发全文摘要。摘要完成后原始消息楼层被 `/hide` 省 Token，时间线中出现摘要卡片。可随时点击按钮在「摘要视图」和「原始时间线」之间切换，所见即所发
-- **独立 API（真并行）**：自动摘要可配置独立的 OpenAI 兼容端点（填入 API 地址 / 密钥 / 模型名称即可）。摘要生成通过直接 HTTP 请求，完全不占用酒馆主连接，实现与 AI 回复的真并行。支持 OpenAI、DeepSeek、OpenRouter 等所有兼容端点
-- **剧情压缩取消按钮**：事件压缩和全文摘要均新增取消按钮，点击后立即中断后端 API 请求（与 AI 智能摘要的取消按钮一致）
-- **表格分支继承**：开分支或回退消息时，表格数据只继承到该节点为止的 AI 填写和用户手动编辑。例如在 #10 开分支，只继承 #10 之前的表格数据，不会带入后续填写
-
-### 改进
-
-- **全局表格数据按卡分离**：全局表格的结构（表头、名称、提示词、锁定）跨角色卡共享，但填写数据按角色卡独立存储。切换卡片不再继承其他卡的表格数据
-- **智能记忆压缩**：在时间线多选模式下可将多条事件交给 AI 压缩合并为一条摘要，支持摘要视图与原始时间线双向切换
-- 系统提示词编辑器中的默认文本会根据当前启用的功能动态更新（如启用关系网络后 `<horae>` 标签格式区自动出现 `rel:` 行）
-
-### UI / UX
-
-- 修复 `--horae-surface` 未定义变量，改用 `--horae-bg-secondary`。**已有的自定义美化不受影响**
-- THEME.md 补充了新增选择器文档
-
-### ⚠️ 升级提醒
-
-如果你之前**自定义过系统注入提示词**，升级到 v1.5.0 后请进入设置 → 自定义提示词，点击各栏位旁的 **🔄 重置** 按钮恢复为最新默认值。因为新增的场景记忆、情绪追踪、关系网络功能需要在提示词中声明对应的标签格式（`scene_desc:`、`mood:`、`rel:`），旧的自定义提示词中缺少这些声明会导致 AI 不输出新标签。
-
-如果你没有自定义过提示词（使用默认值），则无需操作，插件会自动使用最新的默认提示词。
-
----
-
-## v1.6.0 更新内容
-
-- **自助美化工具**：为不会写 CSS 的用户设计的可视化美化面板。提供色相条、饱和度/亮度/日夜模式滑杆、强调色选取和快速色板预览。支持导入图片 URL 装饰抽屉头部、抽屉背景和底部消息栏，可调节可见度。支持独立设置抽屉背景底色。所有修改实时预览，满意后一键保存为自定义主题，可填写名称和作者后导出 JSON 分享
-- **新手导航**：首次使用 Horae 的全新用户会自动触发交互式教学，逐步高亮介绍各功能面板和设置项（上下文深度、注入位置、自动摘要、自定义提示词、自定义表格等），引导新用户快速上手。老用户可在设置中点击「重新开始教学」随时回顾
-- **副 API 破限注入**：自动摘要的独立 API 请求现在会自动注入 SillyTavern 的 jailbreak 提示词和 `max_tokens` 参数，减少因内容审查导致的空回复
-
-### ⚠️ 升级提醒
-
-如果你之前**自定义过系统注入提示词**，升级到 v1.6.0 后请进入设置 → 自定义提示词，点击 **🔄 重置** 按钮恢复为最新默认值。本版本对角色、好感度等字段的强制填写要求做了显著强化，旧的自定义提示词可能缺少这些强调标记。
-
-如果你没有自定义过提示词（使用默认值），则无需操作。
-
----
-
-## v1.7.0 更新内容
-
-本次更新新增向量记忆系统，让自动摘要的用户不再因压缩而丢失细节。
-
-### 新增功能
-
-- **向量记忆 (Beta)**：基于本地 AI 模型的智能回忆系统，专为搭配「自动摘要 & 隐藏」设计。当对话中涉及历史事件时，插件会自动从被隐藏的旧消息中精准召回相关时间线片段，注入上下文供 AI 参考
-  - **全程本地运算**：使用浏览器内置 Web Worker 运行轻量 AI 模型，不消耗额外 API 额度。首次使用需下载约 30-60MB 的模型文件（之后会缓存在浏览器中）
-  - **双模型可选**：`bge-small-zh-v1.5`（中文优化）和 `multilingual-e5-small`（多语言支持），可按需选择
-  - **智能检索**：结合意图识别、结构化查询和语义搜索三层检索策略。例如「提及和角色初次见面」会直接查找该角色首次出现的消息，无需依赖模糊匹配
-  - **上下文关联**：命中消息的前后相邻事件也会被自动带入，还原完整的事件脉络
-  - **全文回顾**：高置信度的召回结果可发送原始正文（自动过滤思维链），让 AI 获得完整的叙事细节而非仅时间线摘要。条数和阈值均可自定义，设为 0 可关闭
-  - **摘要隔离**：自动排除摘要内容，只使用原始时间线数据参与检索，避免摘要重复注入
-
----
-
-## v1.8.0 更新内容
-
-- **RPG 模式**：开启后 AI 通过 `<horaerpg>` 标签输出角色属性和技能变化，与现有 `<horae>` 标签互不干扰
-  - **自定义属性条**：默认 HP/MP/SP 三条，用户可自由增删、修改显示名称和颜色（如改 MP 为「灵力」、新增「精力值」「慾望值」等）
-  - **状态异常追踪**：支持昏眩、流血、冰冻、灼烧、石化等数十种状态关键词，自动匹配差异化图标显示
-  - **技能系统**：记录技能归属、等级和效果描述，技能与 NPC 角色通过编号联动，支持手动添加和 AI 自动生成
-  - **底部 HUD 状态栏**：消息面板上方渲染在场角色的简易状态条，显示属性条和异常状态图标，自动跟随底部栏的宽度和偏移设置
-  - **RPG 分页**：顶部面板新增 RPG 标签页，展示属性条配置、各角色详细属性和状态列表、技能列表
-  - **条件注入**：关闭 RPG 模式时不注入任何提示词，零 Token 消耗；发送属性条和技能列表可独立开关
-- **RPG 面板美化**：自助美化工具新增「RPG 状态栏」区域，支持设置背景色和透明度。RPG HUD 纳入主题系统，跟随日夜模式和自定义主题变量
-
-### ⚠️ 升级提醒
-
-如果你之前**自定义过系统注入提示词**，升级到 v1.8.0 后请进入设置 → 自定义提示词，点击 **🔄 重置** 按钮恢复为最新默认值。RPG 模式需要新增的提示词声明才能正常工作。
-
-如果你没有自定义过提示词（使用默认值），则无需操作。
-
----
-
-## v1.9.0 更新内容
-
-### 自动摘要 & 副 API
-
-- **副 API 多轮结构改造**：重构摘要请求的消息结构，采用 system/assistant/user 多轮交替格式，内嵌 assistant 确认回复和预填充（prefill），大幅提升 NSFW 内容的摘要通过率。同时自动注入酒馆预设中的主提示词、NSFW 允许提示词和破限提示词
-- **模型下拉选单**：副 API、Embedding、Rerank 三处模型设置均从文本输入改为下拉选单。填好 API 地址和密钥后，点击刷新按钮即可拉取可用模型列表，无需手动输入模型名
-- **自动摘要警告优化**：不再因部分楼层缺少时间戳就完全阻止摘要。改为详细显示哪些楼层缺少时间戳或时间线事件（如 `缺时间戳: #5, #8, #12`），仅在超过 50% 缺失时弹出警告提醒，但不阻止摘要执行
-
-### 向量记忆
-
-- **全文剔除标签**：向量设置中新增「全文剔除标签」输入框。用户可填入自定义标签名（如 `snow, theater`），全文回顾和 Rerank 全文精排时会将这些标签包裹的内容整段移除，避免小剧场/旁白等非剧情内容被 AI 召回
-- **番外消息隔离**：标记为「番外」（`_skipHorae`）的消息不再被向量索引和召回，确保小剧场模式的内容不会污染正式剧情的记忆检索
-
----
-
-## 兼容性
-
-- **SillyTavern**: 1.12.6+（AI分析功能需求1.13.5+）
-- **平台**: 电脑端 + 移动端双端适配
-
----
-
-有 bug 或建议欢迎反馈！
-
-**作者：SenriYuki**
+> Horae – Goddess of Season in Greek mythology
+
+You must have encountered the old problem of long-form RP players - the AI's memory is about the same as a goldfish: yesterday's events are said to be this morning, and even what happened a few days ago is always said to be yesterday; In the previous scene, he wore a school uniform, and in the next scene, he suddenly wore casual clothes; NPC relationship is inverted; The gifts sent out disappear into thin air, and the lost things are returned to the hands.
+
+Horae uses structured time anchors to equip your AI with a reliable memory ledger.
+
+Highlight features
+RPG Mode - Health Bar, Skills, and Stats at a Glance (New) An RPG system tailored for Western Fantasy/Cultivation/Combat character cards. When enabled, the AI will output character attributes (HP/MP/SP and custom attributes), status ailments, and skill changes in the tab. The simple HUD status bar is automatically rendered above the bottom message bar, and the RPG tab on the top panel displays a detailed list of attributes and skills. The name and color of the attribute bar can be customized, and the skills are linked to NPC characters. No prompt words are injected or tokens are consumed when closing. Support adjusting the background color and transparency of the RPG status bar separately in the self-service beautification tool.<horaerpg>
+
+Vector Memory Engine - Retrieve Folded Details (NEW) An intelligent outer brain designed for "Auto Summarize & Hide"! Hundreds of thousands of words of long stories are compressed and all the details are lost? Now when a conversation touches on a historical event, the plugin will automatically recall the relevant clip from the old timeline that was hidden. The whole process relies on Web Worker pure local computing, zero API consumption, and a smooth interface without lag (30-60MB model cache needs to be downloaded for the first run, and Chinese-optimized bge and multilingual e5 dual models are ⚠ available, mobile phones or cloud pubs under 2GB are recommended not to use).
+
+Beginner Navigation - Don't Get Lost for the First Time (New) First-time users of Horae automatically trigger an interactive tour that walks you through the functional areas and settings. From basic concepts to advanced features (context depth, injection placement, custom prompts, etc.) in one place. Old users can "restart teaching" at any time in the settings.
+
+Self-service beautifier – a non-CSS and customizable (new) visual beautification panel designed for non-code-free users. Use the hue bar, saturation/brightness slider to quickly grade colors, switch between day and night mode with one click, and import image URLs to decorate the drawer head, background, and bottom message bar. All modifications are previewed in real time, and you can save them when you are satisfied and export them for sharing. Of course, the theme JSON import/export and handwritten CSS are also reserved for advanced users. (⚠️ You don't need to ask me for permission to beautify the Horae plugin, please feel free.) ）
+
+Scene Memory - Taverns no longer change overnight (new). AI describes the same place, the last time there was a fireplace, this time it is gone? Scene memory records the fixed physical characteristics of a location, which are automatically injected the next time you enter the same scene. Smart match place names ("Tavern/Hall" automatically reverts to "Tavern"), only the matched description is sent, and zero injection is injected if it misses.
+
+Emotions & Relationship Network - AI Understands Interpersonal Scenes (NEW) Emotion tracking allows AI to remember a character's current mental state, no longer crying one second and laughing a second later. The relationship network records the types and changes of relationships between characters, and never again writes enemies as friends. Both are change-driven, with zero output when there is no change.
+
+Automatic summary - long automatic saving token chat for hundreds of floors and still sending it in full? Automatic summary In the background, the old message is automatically compressed into a summary, and the original floor saves the token. Summary and original timeline can be switched at any time with one click, and what you see is what you see. It can also be equipped with a low-cost independent API for true parallelism, and summary generation does not occupy the main connection at all./hide
+
+Vector memory – Let AI recall hidden details (NEW) An intelligent recall system used with automatic summarization. Old message details after summary compression are not lost - when a conversation involves a historical event, the plugin automatically recalls relevant fragments from the hidden timeline to inject context. Perform the entire process locally, without consuming additional APIs. It supports two types of model selection: Chinese optimization and multilingual model.
+
+AI Smart Summary Old Archives Haven't used Horae? All historical messages are scanned in batches with one click, and AI automatically extracts plot events and item changes to generate a complete timeline. You can customize the upper limit of tokens for each batch to adapt to different models, and you can cancel it with one click if you are not satisfied.
+
+Say goodbye to "Forever Yesterday" plugin automatically calculates relative time and injects life-like expressions such as "yesterday", "last Wednesday", and "15th of last month". AI can finally tell the difference between the day before yesterday and last week. Support a variety of calendar systems such as modern, historical, fantasy and overhead.
+
+No more random clothes Each character's current outfit is locked and only the outfits of the characters present are sent. Characters will no longer inexplicably change yesterday's clothes, and they will no longer send clothes from people who are not present to AI to waste tokens.
+
+NPCs will not become more and more blurry The fields such as appearance, personality, and relationships are tracked independently. The age will also automatically advance with the plot time. The prompt of the relationship is strictly established, and the AI output in the next second no longer says that the user owes Char money, reversing the relationship.
+
+The inventory is finally reliable with a unique numbered item system, divided into three levels: general/important/critical. Intelligently analyze quantity changes (5 pounds→4 pounds), automatically detect "consumed" and other statuses and remove them.
+
+To-do items are not forgotten AI can automatically record conventions and foreshadowing in the plot, and automatically delete them after completion. Never worry about AI forgetting a date you made two weeks ago again.
+
+Baby food level custom form Excel-style free form, if you want to add rows, add rows, add columns, and fill in prompts for AI to fill in automatically. Curriculum, role relationships, task lists...... You can do anything you can think of. When you delete a message, the content filled in by the AI will automatically fall back, and your own content will always be retained.
+
+Change-driven, save tokens The AI only outputs information about changes in the current round, and no longer repeats the entire state each time. Each type of data has clear trigger rules to reduce invalid outputs. No additional generation times - the plugin automatically parses memory nodes when the AI replies normally, with zero additional overhead.
+
+Don't be afraid of truncation/rewriting Truncated in the middle or manually rewritten part of the plot yourself? The bottom bar has a built-in AI analysis function, which can intelligently complete the memory nodes of the message with just one generation.
+
+The interface is simple, cute and friendly The bottom bar is clear at a glance, and the top panel is clearly pagination. No complex configuration required, ready to install.
+
+Free control over what you send freely Choose what data is sent to the AI and what isn't in the settings - no role tracking required? Turn off. Don't need inventory? Turn off. Combine on demand to save tokens.
+
+Quick installation
+Open the SillyTavern → top extension panel (block icon) → "Install Extension"
+Paste the Git link of this repository and click Install
+Refresh the page after the installation is complete and you can use it
+The companion regex is automatically injected when the plugin is loaded for the first time, eliminating the need for manual import.
+
+v1.1.0 Updates
+AI Intelligent Summarization: Analyze historical messages in batches, automatically extract plot events and items, and support custom token batch limits, which can be revoked with one click
+Token counter: Displays the total amount of prompts sent to AI, located below the settings. As a side note, the current plugin sends 3,591 tokens when it runs
+swipe adaptation: Fixed an issue where when swiping right to generate a new tab, the memory data of the old page will be brought into the new generation. Swipe now automatically excludes old memories of the current pagination when generating, ensuring that the AI generates a new story branch based on the correct context
+Beautification compatibility: The plugin UI style is isolated from the external beautification theme, and there is no longer black on black or white on white
+Regular modification: Set it to not send to AI as well, which saves tokens
+Description correction: Correct the description of some features to a more accurate description
+v1.2.0 Update Details
+Custom prompts: A new prompt editor has been added to the settings, which allows you to freely modify the system injection prompts and AI summary prompts, support/variables, and can restore the default with one click, making it easy to fine-tune{{user}}{{char}}
+AI Summary Function Added: Generation can now be interrupted, and pop-up windows have added "NPC Character Information" and "Favorability" checkboxes. Off by default, on demand
+Summary Review Pop-up: After the AI intelligent summary is completed, a review window will pop up, displaying the results by "Plot Track/Items/Characters/Favorability". Delete unsatisfactory content one by one, click "Supplementary Summary" to rerun AI only for deleted items
+Favorability display switch: A small eye button has been added to the favorability area, which can be clicked to hide/show character favorability
+Favorability Delete: A new delete button has been added to the Edit Favorability pop-up window, which allows you to delete the items that generated errors generated by AI
+Beautification compatibility: Emphasizes the internal word color of the CHECKBOX, and no longer appears white on a white background
+v1.3.0 Updates
+Global table: Added two scopes: Global and Local to the custom table. Global tables are shared across role cards and are suitable for recording fixed data (such as role ID tables). Click the icon in front of the table name to switch between them
+Row Locking: Right-click/long-press on a table cell to lock rows, columns, or individual grids, preventing AI modifications. Lock the content to mark 🔒 in the prompt, and the AI will skip writing
+One-click table clearing: A new eraser button has been added to the table action bar to clear all data area contents but keep the table header, making it easier for AI to refill the form
+Theme system: Built-in "Cherry Blossom Pink", "Forest Green" and "Ocean Blue" three sets of preset themes, which can be used immediately. Support importing/exporting custom beautified JSON files to facilitate community sharing of themes
+Beautify navigation: Added a new document that lists all CSS variables, main container class names, and beautified file formats to facilitate users to customize their themesTHEME.md
+Day and night mode: You can switch between day/night mode in the settings, which only affects the plug-in interface
+Custom CSS: Additional CSS code can be entered in the settings to fine-tune the plugin style
+Right-click menu fix: Fix the issue of right-click menu transparency (CSS variable scope does not override level elements)document.body
+Style isolation enhancements: All buttons are replaced with plugin-specific class names, and the top bar icons are no longer affected by light mode
+Message panel width: Customizable message panel width (50-100%) in settings
+Regular bottoming: Plugins are automatically moved to the end of the list when they start, reducing conflicts with other regulars
+Timeline multi-selection: Timeline events can be deleted in batches by long-pressing multiple selections (to avoid accidental touches that have a long trigger time).
+v1.4.0 Update Details
+Favorability decimal point support: The favorability value fully supports decimals, and is compatible with the world's book and other favorability systems that step by decimal point
+Top icon switch: Added a new "Show top navigation bar icon" switch in the settings. It can be reopened by using the "Horae Time Memory" field in the expansion panel (block icon).
+Timeline insertion function: Long press the timeline event to pop up the operation menu, and you can add events or insert the summary page at the top/bottom. The summary page is used to replace the deleted intermediate timeline, saving tokens while preserving key information
+Timeline multi-select improvements: multi-select mode changed to tap the top button to switch (the original long press trigger has been changed to insert menu)
+Summary page: Added "Summary" event type, no timestamp display, blank state prompts the user "Do not delete the opening timeline"
+Customize the prompt for filling in the form: The "Form Filling Rule Prompt" editor has been added to the custom prompt area, which allows you to freely modify the AI form filling rules and support one-click restoration of defaults
+Table AI Understanding Enhancement: Table data sent to AI is now labeled with coordinates (e.g. ) and size declarations, significantly reducing AI misplacement[1,2]内容
+Table Data Cleaning Fix: When deleting a table or clearing it with one click, it simultaneously clears the AI history (tableContributions) and baseline snapshot (baseData) in all messages, completely eliminating the reflow of old data
+v1.5.0 Update Details
+This update revolves around RP "Fineness" and "Long-Length Saving Tokens".
+
+What's new
+Emotional/psychological state tracking: Track the emotional changes of the characters present (e.g. "nervous/uneasy", "happy/expectant"). The bottom bar automatically displays the sentiment label for the current character. Token consumption is extremely low – AI only outputs labels (usually 10-20 tokens) when there is a noticeable change in sentiment tags, and zero output when there is no change. It can be toggled on and off in the settingsmood:
+Relationship network: Record the relationship between characters (friends, lovers, superiors and subordinates, old enemies, etc.). The NPC page displays a list of relationships at the bottom, which can be edited manually. The relationship display in the bottom column is completely read and rendered by the plugin from the database, without consuming AI output tokens. The AI side adopts change-driven: only outputs the label when the relationship changes, and outputs zero when the existing relationship has no change. It can be toggled on and off in the settingsrel:
+Scene memory: Record the fixed physical characteristics of the location to maintain consistent cross-round scene description. Smart retrieval - the plugin matches the recorded scene description based on the current location name, and only sends the matching one (usually 50-150 words), instead of sending all the location memories. Zero injection when not matched to any location. Support compound place name revert matching (e.g. "Tavern/Hall"→ "Tavern")
+Auto Summarize & Hide: Enabled in the settings to automatically trigger full-text summarization when the number of uncompressed messages exceeds the threshold. After the summary is completed, the original message floor is saved with a token, and a summary card appears in the timeline. You can switch between "Summary View" and "Raw Timeline" at any time with the click of a button, and what you see is what you see/hide
+Standalone API (true parallelism): Automatic summarization can be configured with independent OpenAI-compatible endpoints (just fill in the API address / key / model name). Summary generation is done through direct HTTP requests, completely without occupying the tavern master connection, enabling true parallelism with AI responses. Supports all compatible endpoints like OpenAI, DeepSeek, OpenRouter, and more
+Story Compression Cancellation Button: A new cancel button has been added for event compression and full-text summarization, which immediately interrupts backend API requests after clicking (consistent with the cancel button in AI Smart Summary)
+Table branch inheritance: When opening a branch or fallback message, the table data is only inherited by AI filling up to that node and manual editing by the user. For example, if you open a branch in #10, only the table data before #10 will be inherited, and will not be carried into subsequent fills
+Improved
+Global Table Data Separation by Card: The structure of the global table (header, name, prompt, lock) is shared across role cards, but the fill data is stored separately by role card. Switch cards no longer inherit table data from other cards
+Intelligent memory compression: In timeline multi-selection mode, multiple events can be compressed and merged into a single summary, supporting two-way switching between the summary view and the original timeline
+The default text in the system prompt editor is dynamically updated based on the currently enabled feature (e.g. the label formatting area automatically appears when the relationship network is enabled rows)<horae>rel:
+UI / UX
+Fix undefined variables and use instead. Existing custom beautification is not affected--horae-surface--horae-bg-secondary
+THEME.md Added new selector documentation
+⚠️ Upgrade reminders
+If you have previously customized the system injection prompt, please go to Settings → Customize the prompt after upgrading to v1.5.0, and click the Reset button next to 🔄 each column to restore to the latest default value. Because the new scene memory, emotion tracking, and relational network functions need to declare the corresponding label format (, , ) in the prompt, the lack of these declarations in the old custom prompt will cause the AI not to output new tags.scene_desc:mood:rel:
+
+If you haven't customized the prompt (using the default value), you don't need to do anything, the plugin will automatically use the latest default prompt.
+
+v1.6.0 Update Details
+Self-service beautification tool: A visual beautification panel designed for users who can't write CSS. Hue bars, saturation/brightness/day/night mode sliders, accent color selection, and quick swatch previews are available. Supports importing image URLs to decorate the drawer head, drawer background, and bottom message bar, and adjusts visibility. Support setting the background color of the drawer independently. All modifications are previewed in real time, and if you are satisfied, you can save it as a custom theme with one click, and you can export JSON to share after filling in the name and author
+Beginner Navigation: New users of Horae for the first time will automatically trigger interactive tutorials that highlight the function panels and settings (context depth, injection location, auto-summarization, custom prompts, custom tables, etc.) to guide new users to get started. Old users can click "Restart Teaching" in the settings to review at any time
+Sub-API Breaker Injection: Standalone API requests for automatic summarization are now automatically injected with SillyTavern's jailbreak prompt and parameter, reducing empty replies due to content moderationmax_tokens
+⚠️ Upgrade reminders
+If you have customized the system injection prompt before, please go to Settings → Customize the prompt after upgrading to v1.6.0, and click 🔄 the Reset button to restore to the latest default value. This release has significantly enhanced the mandatory filling requirements for fields such as persona and favorability, and the old custom prompt may lack these emphasis tags.
+
+If you haven't customized the prompt (using the default value), you don't need to do anything.
+
+v1.7.0 Update Details
+This update adds a vector memory system so that users of automatic summarization no longer lose details due to compression.
+
+What's new
+Vector Memory (Beta): An intelligent memory system based on local AI models, designed for "Auto Summarize & Hide". When historical events are involved in a conversation, the plugin automatically recalls relevant timeline snippets from hidden old messages, injecting context for AI reference
+
+Fully local computing: Run lightweight AI models using browser-built web workers without consuming additional API credits. For the first use, you need to download a model file of about 30-60MB (cached in the browser afterwards)
+Dual models are available :(Chinese optimized) and (multilingual support), which can be selected as neededbge-small-zh-v1.5multilingual-e5-small
+Intelligent retrieval: Combines three-layer search strategies of intent recognition, structured query, and semantic search. For example, "Mention and Character First Meeting" will directly look for the character's first appearance message, without relying on fuzzy matching
+Contextual association: Adjacent events before and after the hit message will also be automatically brought in to restore the complete event context
+Full-text recap: High-confidence recall results send the original body (automatically filtering the chain of thought), allowing the AI to get full narrative details rather than just a timeline summary. The number of bars and the threshold can be customized, and set to 0 to turn off
+Abstract isolation: Automatically exclude the content of the abstract and only use the original timeline data to participate in the retrieval to avoid duplicate abstract injection
+v1.8.0 Update Details
+RPG mode: After turning on, the AI outputs character attributes and skill changes through tags, without interfering with existing tags<horaerpg><horae>
+
+Custom attribute bar: Default HP/MP/SP three, users can freely add, delete, modify the display name and color (such as changing MP to "spiritual power", adding "energy value", "desire value", etc.)
+Status abnormal tracking: Supports dozens of status keywords such as stun, bleeding, freezing, burning, and petrification, and automatically matches differentiated icon displays
+Skill system: Record skill attribution, level, and effect description, and link skills with NPC characters through numbering, supporting manual addition and automatic AI generation
+Bottom HUD Status Bar: A simple status bar rendered above the message panel for the characters present, displaying the attribute bar and abnormal status icons, and automatically following the width and offset settings of the bottom bar
+RPG Tab: A new RPG tab has been added to the top panel to display the configuration of the attribute bar, detailed attributes and status lists of each character, and skill list
+Conditional injection: No prompt words are injected when RPG mode is turned off, and zero token consumption is required. The send attribute bar and skill list can be toggled on and off independently
+RPG Panel Beautification: The self-service beautification tool has added an "RPG Status Bar" area to support setting background color and transparency. RPG HUD incorporates a theme system, following a day and night pattern and custom theme variables
+⚠️ Upgrade reminders
+If you have customized the system injection prompt before, please go to Settings → Customize the prompt after upgrading to v1.8.0, and click 🔄 the Reset button to restore to the latest default value. RPG mode requires a new prompt declaration to work properly.
+
+If you haven't customized the prompt (using the default value), you don't need to do anything.
+
+v1.9.0 Update Details
+Automated summaries & sub-APIs
+Sub-API Multi-Round Structure Transformation: Reconstruct the message structure of summary requests, adopt the system/assistant/user multi-round alternating format, and embed assistant confirmation replies and prefills, greatly improving the summarization pass rate of NSFW content. At the same time, it automatically injects the main prompt, NSFW allowed prompt, and limit breaking prompt in the tavern preset
+Model drop-down menu: The model settings in Sub-API, Embedding, and Rerank are changed from text input to drop-down menus. After filling in the API address and key, click the refresh button to pull the list of available models without manually entering the model name
+Automatic Summary Warning Optimization: No longer completely blocks summaries due to missing timestamps on some floors. Instead, it shows in detail which floors are missing timestamps or timeline events (such as ), and only pops up a warning alert when more than 50% is missing, but doesn't prevent the summary from being executed缺时间戳: #5, #8, #12
+Vector memory
+Full-text exclusion label: A new "full-text exclusion label" input box has been added to the vector settings. Users can fill in custom tag names (such as , ), and the entire content wrapped in these tags will be removed when full-text review and Rerank full-text refinement to avoid AI recall of non-plot content such as small theater/narrationsnow, theater
+Extra Message Isolation: Messages marked as "extra" () are no longer vector indexed and recalled, ensuring that the content of the small theater mode does not pollute the memory retrieval of the official plot_skipHorae
+Compatibility
+SillyTavern: 1.12.6+ (AI analysis function requires 1.13.5+)
+Platform: Desktop + mobile dual-end adaptation
+If there are bugs or suggestions, feedback is welcome!
+
+Author: SenriYuki
