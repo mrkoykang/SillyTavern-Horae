@@ -277,7 +277,7 @@ class HoraeManager {
             if (meta.npcs) {
                 // 可更新字段 vs 受保护字段
                 const updatableFields = ['appearance', 'personality', 'relationship', 'age', 'job', 'note'];
-                const protectedFields = ['gender', 'race']; // 性别/种族极少改变
+                const protectedFields = ['gender', 'race', 'birthday'];
                 for (const [name, newNpc] of Object.entries(meta.npcs)) {
                     const existing = state.npcs[name];
                     if (existing) {
@@ -311,6 +311,7 @@ class HoraeManager {
                             age: newNpc.age || '',
                             race: newNpc.race || '',
                             job: newNpc.job || '',
+                            birthday: newNpc.birthday || '',
                             note: newNpc.note || '',
                             _ageRefDate: newNpc.age ? (state.timestamp.story_date || '') : '',
                             first_seen: newNpc.first_seen || new Date().toISOString(),
@@ -374,53 +375,85 @@ class HoraeManager {
         return state;
     }
 
-    /** 根据剧情时间推移计算NPC当前年龄 */
+    /** 解析生日字符串，支持 yyyy-mm-dd / yyyy/mm/dd / mm-dd / mm/dd */
+    _parseBirthday(str) {
+        if (!str) return null;
+        let m = str.match(/(\d{2,4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);
+        if (m) return { year: parseInt(m[1]), month: parseInt(m[2]), day: parseInt(m[3]) };
+        m = str.match(/^(\d{1,2})[\/\-.](\d{1,2})$/);
+        if (m) return { year: null, month: parseInt(m[1]), day: parseInt(m[2]) };
+        return null;
+    }
+
+    /** 根据剧情时间推移计算NPC当前年龄（优先使用生日精确计算） */
     calcCurrentAge(npcInfo, currentStoryDate) {
         const original = npcInfo.age || '';
-        const refDate = npcInfo._ageRefDate || '';
-        
-        // 无法推算的情况：无年龄、无参考日期、无当前日期
-        if (!original || !refDate || !currentStoryDate) {
+        if (!original || !currentStoryDate) {
             return { display: original, original, changed: false };
         }
-        
+
         const ageNum = parseInt(original);
         if (isNaN(ageNum)) {
-            // 非数字年龄，无法推算
             return { display: original, original, changed: false };
         }
-        
-        const refParsed = parseStoryDate(refDate);
+
         const curParsed = parseStoryDate(currentStoryDate);
-        
-        // 需要两者都是 standard 类型且有年份才能推算
-        if (!refParsed || !curParsed || refParsed.type !== 'standard' || curParsed.type !== 'standard') {
+        if (!curParsed || curParsed.type !== 'standard' || !curParsed.year) {
             return { display: original, original, changed: false };
         }
-        if (!refParsed.year || !curParsed.year) {
+
+        const bdParsed = this._parseBirthday(npcInfo.birthday);
+
+        // ── 有完整生日(含年份)：精确计算 ──
+        if (bdParsed?.year) {
+            let age = curParsed.year - bdParsed.year;
+            if (bdParsed.month && curParsed.month) {
+                if (curParsed.month < bdParsed.month ||
+                    (curParsed.month === bdParsed.month && (curParsed.day || 1) < (bdParsed.day || 1))) {
+                    age -= 1;
+                }
+            }
+            age = Math.max(0, age);
+            return { display: String(age), original, changed: age !== ageNum };
+        }
+
+        // 以下两种情况都需要 _ageRefDate
+        const refDate = npcInfo._ageRefDate || '';
+        if (!refDate) return { display: original, original, changed: false };
+
+        const refParsed = parseStoryDate(refDate);
+        if (!refParsed || refParsed.type !== 'standard' || !refParsed.year) {
             return { display: original, original, changed: false };
         }
-        
+
+        // ── 仅有月日生日：用 refDate+age 推算出生年，再精确计算 ──
+        if (bdParsed?.month) {
+            let birthYear = refParsed.year - ageNum;
+            if (refParsed.month) {
+                const refBeforeBd = refParsed.month < bdParsed.month ||
+                    (refParsed.month === bdParsed.month && (refParsed.day || 1) < (bdParsed.day || 1));
+                if (refBeforeBd) birthYear -= 1;
+            }
+            let currentAge = curParsed.year - birthYear;
+            if (curParsed.month) {
+                const curBeforeBd = curParsed.month < bdParsed.month ||
+                    (curParsed.month === bdParsed.month && (curParsed.day || 1) < (bdParsed.day || 1));
+                if (curBeforeBd) currentAge -= 1;
+            }
+            if (currentAge <= ageNum) return { display: original, original, changed: false };
+            return { display: String(currentAge), original, changed: true };
+        }
+
+        // ── 无生日：退回旧逻辑 ──
         let yearDiff = curParsed.year - refParsed.year;
-        
-        // 月日判断是否已过生日
         if (refParsed.month && curParsed.month) {
-            if (curParsed.month < refParsed.month || 
+            if (curParsed.month < refParsed.month ||
                 (curParsed.month === refParsed.month && (curParsed.day || 1) < (refParsed.day || 1))) {
                 yearDiff -= 1;
             }
         }
-        
-        if (yearDiff <= 0) {
-            return { display: original, original, changed: false };
-        }
-        
-        const currentAge = ageNum + yearDiff;
-        return { 
-            display: String(currentAge), 
-            original, 
-            changed: true 
-        };
+        if (yearDiff <= 0) return { display: original, original, changed: false };
+        return { display: String(ageNum + yearDiff), original, changed: true };
     }
 
     /** 通过ID查找物品 */
@@ -629,6 +662,7 @@ class HoraeManager {
                     }
                     if (info.race) extras.push(`种族:${info.race}`);
                     if (info.job) extras.push(`职业:${info.job}`);
+                    if (info.birthday) extras.push(`生日:${info.birthday}`);
                     if (info.note) extras.push(`补充:${info.note}`);
                     if (extras.length > 0) npcStr += `~${extras.join('~')}`;
                     lines.push(npcStr);
@@ -2016,6 +2050,7 @@ class HoraeManager {
             else if (/^(年龄|age|年纪)$/i.test(key)) info.age = value;
             else if (/^(种族|race|族裔|族群)$/i.test(key)) info.race = value;
             else if (/^(职业|job|class|职务|身份)$/i.test(key)) info.job = value;
+            else if (/^(生日|birthday|birth)$/i.test(key)) info.birthday = value;
             else if (/^(补充|note|备注|其他)$/i.test(key)) info.note = value;
         }
         
@@ -2438,7 +2473,7 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
   用完：item-:陈酿麦酒
 
 ═══ 【NPC】触发条件与规则 ═══
-格式：npc:名|外貌=性格@与${userName}的关系~性别:值~年龄:值~种族:值~职业:值
+格式：npc:名|外貌=性格@与${userName}的关系~性别:值~年龄:值~种族:值~职业:值~生日:值
 分隔符：| 分名字，= 分外貌与性格，@ 分关系，~ 分扩展字段(key:value)
 
 【何时写】（满足任一条件才输出该NPC的npc:行）
@@ -2462,6 +2497,11 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
   只更新性格：npc:沃尔|=不再沉默/偶尔微笑
   只改职业：npc:沃尔|~职业:退役佣兵
 （注意：未变化的字段和~扩展字段完全不写！系统自动保留原有数据！）
+
+【生日字段（可选扩展字段）】
+  格式：~生日:yyyy/mm/dd 或 ~生日:mm/dd（无年份时仅写月日）
+  ⚠ 仅当角色设定/人物描述中明确提及生日日期时才写！严禁猜测或捏造！
+  ⚠ 没有明确出处的生日一律不写此字段——留空由用户自行填写。
 
 【关系描述规范】
   必须包含对象名且准确：❌客人 ✅${userName}的新访客 / ❌债主 ✅持有${userName}欠条的人 / ❌房东 ✅${userName}的房东 / ❌男朋友 ✅${userName}的男朋友 / ❌恩人 ✅救了${userName}一命的人 / ❌霸凌者 ✅欺负${userName}的人 / ❌暗恋者 ✅暗恋${userName}的人 / ❌仇人 ✅被${userName}杀掉了生父
@@ -2509,7 +2549,7 @@ ${this._generateMustTagsReminder()}
   ✅ event: ← 重要程度|事件摘要
 
 【NPC首次登场时额外必写——缺一不可！】
-  ✅ npc:名|外貌=性格@关系~性别:值~年龄:值~种族:值~职业:值
+  ✅ npc:名|外貌=性格@关系~性别:值~年龄:值~种族:值~职业:值~生日:值(仅已知时写，未知不写)
   ✅ affection:该NPC名=初始好感度（陌生0-20/熟人30-50/朋友50-70/恋人70-90）
 
 以上字段不存在"可写可不写"的情况——它们是强制性的。
@@ -2590,7 +2630,7 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
   用完：item-:陈酿麦酒
 
 ═══ 【NPC】触发条件与规则 ═══
-格式：npc:名|外貌=性格@与{{user}}的关系~性别:值~年龄:值~种族:值~职业:值
+格式：npc:名|外貌=性格@与{{user}}的关系~性别:值~年龄:值~种族:值~职业:值~生日:值
 分隔符：| 分名字，= 分外貌与性格，@ 分关系，~ 分扩展字段(key:value)
 
 【何时写】（满足任一条件才输出该NPC的npc:行）
@@ -2614,6 +2654,11 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
   只更新性格：npc:沃尔|=不再沉默/偶尔微笑
   只改职业：npc:沃尔|~职业:退役佣兵
 （注意：未变化的字段和~扩展字段完全不写！系统自动保留原有数据！）
+
+【生日字段（可选扩展字段）】
+  格式：~生日:yyyy/mm/dd 或 ~生日:mm/dd（无年份时仅写月日）
+  ⚠ 仅当角色设定/人物描述中明确提及生日日期时才写！严禁猜测或捏造！
+  ⚠ 没有明确出处的生日一律不写此字段——留空由用户自行填写。
 
 【关系描述规范】
   必须包含对象名且准确：❌客人 ✅{{user}}的新访客 / ❌债主 ✅持有{{user}}欠条的人 / ❌房东 ✅{{user}}的房东 / ❌男朋友 ✅{{user}}的男朋友 / ❌恩人 ✅救了{{user}}一命的人 / ❌霸凌者 ✅欺负{{user}}的人 / ❌暗恋者 ✅暗恋{{user}}的人 / ❌仇人 ✅被{{user}}杀掉了生父
@@ -2662,7 +2707,7 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
   ✅ event: ← 重要程度|事件摘要
 
 【NPC首次登场时额外必写——缺一不可！】
-  ✅ npc:名|外貌=性格@关系~性别:值~年龄:值~种族:值~职业:值
+  ✅ npc:名|外貌=性格@关系~性别:值~年龄:值~种族:值~职业:值~生日:值(仅已知时写，未知不写)
   ✅ affection:该NPC名=初始好感度（陌生0-20/熟人30-50/朋友50-70/恋人70-90）
 
 以上字段不存在"可写可不写"的情况——它们是强制性的。`;
@@ -2859,11 +2904,7 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
             p += `\n【属性条——每回合必写，缺少=不合格！】\n`;
             p += `必须为 characters: 中每个在场角色输出全部属性条和状态：\n`;
             for (const bar of barCfg) {
-                if (bar.key === 'hp') {
-                    p += `  ✅ hp:归属=当前/最大\n`;
-                } else {
-                    p += `  ✅ ${bar.key}:归属=当前/最大(${bar.name})  ← 首次必须标注显示名\n`;
-                }
+                p += `  ✅ ${bar.key}:归属=当前/最大(${bar.name})  ← 首次必须标注显示名\n`;
             }
             p += `  ✅ status:归属=效果1/效果2  ← 无异常写 =正常\n`;
             p += `规则：\n`;

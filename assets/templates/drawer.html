@@ -10,7 +10,7 @@
                 <i class="fa-regular fa-clock"></i>
                 Horae 时光记忆
             </div>
-            <span class="horae-version">v1.9.3</span>
+            <span class="horae-version">v1.9.4</span>
         </div>
         
         <!-- 标签页导航 -->
@@ -326,6 +326,7 @@
                     <div class="horae-rpg-section-head">
                         <span>属性条配置</span>
                         <button id="horae-rpg-bar-reset" class="horae-rpg-btn-sm" title="恢复默认"><i class="fa-solid fa-rotate-left"></i></button>
+                        <button id="horae-rpg-bar-clean" class="horae-rpg-btn-sm" title="清理聊天中不在当前配置内的旧属性条数据"><i class="fa-solid fa-broom"></i></button>
                         <button id="horae-rpg-bar-export" class="horae-rpg-btn-sm" title="导出配置"><i class="fa-solid fa-download"></i></button>
                         <button id="horae-rpg-bar-import" class="horae-rpg-btn-sm" title="导入配置"><i class="fa-solid fa-upload"></i></button>
                         <button id="horae-rpg-add-bar" class="horae-rpg-btn-sm" title="添加属性条"><i class="fa-solid fa-plus"></i></button>
@@ -992,8 +993,16 @@
                     <div id="horae-prompt-collapse-body" style="display: none;">
                         <span class="horae-setting-hint" style="margin-bottom: 12px;">
                             <i class="fa-solid fa-circle-info"></i>
-                            自定义发送给AI的规则提示词。修改后AI将按你的规则输出标签。
+                            自定义发送给AI的规则提示词。修改后AI将按你的规则输出标签。可用预设存档快速切换不同角色卡的配置。
                         </span>
+                        <div class="horae-prompt-presets-bar">
+                            <i class="fa-solid fa-bookmark" style="opacity:.5;font-size:12px"></i>
+                            <select id="horae-prompt-preset-select" title="提示词预设"></select>
+                            <button id="horae-prompt-preset-load" class="horae-rpg-btn-sm" title="加载选中预设"><i class="fa-solid fa-download"></i></button>
+                            <button id="horae-prompt-preset-save" class="horae-rpg-btn-sm" title="保存当前提示词到选中预设"><i class="fa-solid fa-floppy-disk"></i></button>
+                            <button id="horae-prompt-preset-new" class="horae-rpg-btn-sm" title="另存为新预设"><i class="fa-solid fa-plus"></i></button>
+                            <button id="horae-prompt-preset-delete" class="horae-rpg-btn-sm" title="删除选中预设"><i class="fa-solid fa-trash"></i></button>
+                        </div>
                         
                         <div class="horae-prompt-editor-group">
                             <div class="horae-prompt-editor-header">
@@ -1167,7 +1176,7 @@
                 </div>
                 
                 <div class="horae-about">
-                    <p>Horae v1.9.3 | 作者: SenriYuki</p>
+                    <p>Horae v1.9.4 | 作者: SenriYuki</p>
                     <p>基于时间锚点的AI记忆增强系统</p>
                 </div>
             </div>

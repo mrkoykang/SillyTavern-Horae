@@ -3,7 +3,7 @@
  * 基于时间锚点的AI记忆增强系统
  * 
  * 作者: SenriYuki
- * 版本: 1.9.3
+ * 版本: 1.9.4
  */
 
 import { renderExtensionTemplateAsync, getContext, extension_settings } from '/scripts/extensions.js';
@@ -20,7 +20,7 @@ import { calculateRelativeTime, calculateDetailedRelativeTime, formatRelativeTim
 const EXTENSION_NAME = 'horae';
 const EXTENSION_FOLDER = `third-party/SillyTavern-Horae`;
 const TEMPLATE_PATH = `${EXTENSION_FOLDER}/assets/templates`;
-const VERSION = '1.9.3';
+const VERSION = '1.9.4';
 
 // 配套正则规则（自动注入ST原生正则系统）
 const HORAE_REGEX_RULES = [
@@ -165,6 +165,7 @@ const DEFAULT_SETTINGS = {
     ],
     rpgAttrViewMode: 'radar',       // 'radar' 或 'text'
     customRpgPrompt: '',            // 自定义RPG提示词（空=默认）
+    promptPresets: [],              // 提示词预设存档 [{name, prompts:{system,batch,...}}]
     rpgDiceEnabled: false,          // RPG骰子面板
     dicePosX: null,                 // 骰子面板拖拽位置X（null=默认右下角）
     dicePosY: null,                 // 骰子面板拖拽位置Y
@@ -2273,6 +2274,9 @@ function updateCharactersDisplay() {
                 if (extraTags.length > 0) {
                     descHtml += `<span class="horae-npc-extras">${extraTags.join(' · ')}</span>`;
                 }
+                if (info.birthday) {
+                    descHtml += `<span class="horae-npc-birthday"><i class="fa-solid fa-cake-candles"></i>${info.birthday}</span>`;
+                }
                 if (info.note) {
                     descHtml += `<span class="horae-npc-note">${info.note}</span>`;
                 }
@@ -3111,6 +3115,10 @@ function openNpcEditModal(npcName) {
                         <input type="text" id="edit-npc-relationship" value="${npc.relationship || ''}" placeholder="如：主角的邻居">
                     </div>
                     <div class="horae-edit-field">
+                        <label>生日 <span style="font-weight:normal;color:var(--horae-text-dim);font-size:11px">yyyy/mm/dd 或 mm/dd</span></label>
+                        <input type="text" id="edit-npc-birthday" value="${npc.birthday || ''}" placeholder="如：1990/03/15 或 03/15（可选）">
+                    </div>
+                    <div class="horae-edit-field">
                         <label>补充说明</label>
                         <input type="text" id="edit-npc-note" value="${npc.note || ''}" placeholder="其他重要信息（可选）">
                     </div>
@@ -3162,6 +3170,7 @@ function openNpcEditModal(npcName) {
             age: newAge,
             race: document.getElementById('edit-npc-race').value,
             job: document.getElementById('edit-npc-job').value,
+            birthday: document.getElementById('edit-npc-birthday').value.trim(),
             note: document.getElementById('edit-npc-note').value
         };
         
@@ -3170,7 +3179,20 @@ function openNpcEditModal(npcName) {
         const currentState = horaeManager.getLatestState();
         const ageChanged = newAge !== (npc.age || '');
         if (ageChanged && newAge) {
-            newData._ageRefDate = currentState.timestamp?.story_date || '';
+            const ageCalc = horaeManager.calcCurrentAge(npc, currentState.timestamp?.story_date);
+            const storyDate = currentState.timestamp?.story_date || '（无剧情日期）';
+            const confirmed = confirm(
+                `⚠ 年龄推算基准点变更\n\n` +
+                `原始记录年龄：${npc.age || '无'}\n` +
+                (ageCalc.changed ? `当前推算年龄：${ageCalc.display}\n` : '') +
+                `新设定年龄：${newAge}\n` +
+                `当前剧情日期：${storyDate}\n\n` +
+                `确认后，系统会以「${newAge}岁 + ${storyDate}」作为新的推算起点。\n` +
+                `今后的年龄推进将从此处重新累积，而非从旧的注入时间点计算。\n\n` +
+                `确定更改吗？`
+            );
+            if (!confirmed) return;
+            newData._ageRefDate = storyDate;
         }
         
         const isRename = newName !== npcName;
@@ -7911,6 +7933,7 @@ function buildHoraeTagFromMeta(meta) {
             if (info.age) extras.push(`年龄:${info.age}`);
             if (info.race) extras.push(`种族:${info.race}`);
             if (info.job) extras.push(`职业:${info.job}`);
+            if (info.birthday) extras.push(`生日:${info.birthday}`);
             if (info.note) extras.push(`补充:${info.note}`);
             if (extras.length > 0) npcLine += `~${extras.join('~')}`;
             lines.push(npcLine);
@@ -8213,6 +8236,48 @@ function initSettingsEvents() {
         saveSettings(); renderBarConfig();
         horaeManager.init(getContext(), settings); _refreshSystemPromptDisplay(); updateTokenCounter();
         showToast('已恢复默认属性条', 'success');
+    });
+    // 属性条：清理不在当前配置中的旧数据
+    $('#horae-rpg-bar-clean').on('click', async () => {
+        const chat = horaeManager.getChat();
+        if (!chat?.length) { showToast('无聊天数据', 'warning'); return; }
+        const validKeys = new Set((settings.rpgBarConfig || []).map(b => b.key));
+        validKeys.add('status');
+        const staleKeys = new Set();
+        for (let i = 0; i < chat.length; i++) {
+            const bars = chat[i]?.horae_meta?._rpgChanges?.bars;
+            if (bars) for (const key of Object.keys(bars)) { if (!validKeys.has(key)) staleKeys.add(key); }
+            const st = chat[i]?.horae_meta?._rpgChanges?.status;
+            if (st) for (const key of Object.keys(st)) { if (!validKeys.has(key)) staleKeys.add(key); }
+        }
+        const globalBars = chat[0]?.horae_meta?.rpg?.bars;
+        if (globalBars) for (const owner of Object.keys(globalBars)) {
+            for (const key of Object.keys(globalBars[owner] || {})) { if (!validKeys.has(key)) staleKeys.add(key); }
+        }
+        if (staleKeys.size === 0) { showToast('没有需要清理的旧属性条数据', 'success'); return; }
+        const keyList = [...staleKeys].join('、');
+        const ok = confirm(
+            `⚠ 发现以下不在当前属性条配置中的旧数据：\n\n` +
+            `【${keyList}】\n\n` +
+            `清理后将从所有消息中移除这些属性条的历史记录，RPG 面板将不再显示它们。\n` +
+            `此操作不可撤销！\n\n确定清理吗？`
+        );
+        if (!ok) return;
+        let cleaned = 0;
+        for (let i = 0; i < chat.length; i++) {
+            const changes = chat[i]?.horae_meta?._rpgChanges;
+            if (!changes) continue;
+            for (const sub of ['bars', 'status']) {
+                if (!changes[sub]) continue;
+                for (const key of Object.keys(changes[sub])) {
+                    if (staleKeys.has(key)) { delete changes[sub][key]; cleaned++; }
+                }
+            }
+        }
+        horaeManager.rebuildRpgData();
+        await getContext().saveChat();
+        refreshAllDisplays();
+        showToast(`已清理 ${cleaned} 条旧属性数据（${keyList}）`, 'success');
     });
     // 属性条：导出
     $('#horae-rpg-bar-export').on('click', () => {
@@ -8517,6 +8582,97 @@ function initSettingsEvents() {
         $('#horae-custom-rpg-prompt').val(def);
         $('#horae-rpg-prompt-count').text(def.length);
         horaeManager.init(getContext(), settings); _refreshSystemPromptDisplay(); updateTokenCounter();
+    });
+
+    // ── 提示词预设存档 ──
+    const _PRESET_PROMPT_KEYS = [
+        'customSystemPrompt', 'customBatchPrompt', 'customAnalysisPrompt',
+        'customCompressPrompt', 'customAutoSummaryPrompt', 'customTablesPrompt',
+        'customLocationPrompt', 'customRelationshipPrompt', 'customMoodPrompt',
+        'customRpgPrompt'
+    ];
+    function _collectCurrentPrompts() {
+        const obj = {};
+        for (const k of _PRESET_PROMPT_KEYS) obj[k] = settings[k] || '';
+        return obj;
+    }
+    function _applyPresetPrompts(prompts) {
+        for (const k of _PRESET_PROMPT_KEYS) settings[k] = prompts[k] || '';
+        saveSettings();
+        // 刷新所有 textarea
+        _refreshSystemPromptDisplay();
+        const pairs = [
+            ['customBatchPrompt', 'horae-custom-batch-prompt', 'horae-batch-prompt-count', () => getDefaultBatchPrompt()],
+            ['customAnalysisPrompt', 'horae-custom-analysis-prompt', 'horae-analysis-prompt-count', () => getDefaultAnalysisPrompt()],
+            ['customCompressPrompt', 'horae-custom-compress-prompt', 'horae-compress-prompt-count', () => getDefaultCompressPrompt()],
+            ['customAutoSummaryPrompt', 'horae-custom-auto-summary-prompt', 'horae-auto-summary-prompt-count', () => getDefaultAutoSummaryPrompt()],
+            ['customTablesPrompt', 'horae-custom-tables-prompt', 'horae-tables-prompt-count', () => horaeManager.getDefaultTablesPrompt()],
+            ['customLocationPrompt', 'horae-custom-location-prompt', 'horae-location-prompt-count', () => horaeManager.getDefaultLocationPrompt()],
+            ['customRelationshipPrompt', 'horae-custom-relationship-prompt', 'horae-relationship-prompt-count', () => horaeManager.getDefaultRelationshipPrompt()],
+            ['customMoodPrompt', 'horae-custom-mood-prompt', 'horae-mood-prompt-count', () => horaeManager.getDefaultMoodPrompt()],
+            ['customRpgPrompt', 'horae-custom-rpg-prompt', 'horae-rpg-prompt-count', () => horaeManager.getDefaultRpgPrompt()],
+        ];
+        for (const [key, textareaId, countId, getDefault] of pairs) {
+            const val = settings[key] || getDefault();
+            $(`#${textareaId}`).val(val);
+            $(`#${countId}`).text(val.length);
+        }
+        horaeManager.init(getContext(), settings);
+        updateTokenCounter();
+    }
+    function _renderPresetSelect() {
+        const sel = $('#horae-prompt-preset-select');
+        sel.empty();
+        const presets = settings.promptPresets || [];
+        if (presets.length === 0) {
+            sel.append('<option value="-1">（无预设）</option>');
+        } else {
+            for (let i = 0; i < presets.length; i++) {
+                sel.append(`<option value="${i}">${presets[i].name}</option>`);
+            }
+        }
+    }
+    _renderPresetSelect();
+
+    $('#horae-prompt-preset-load').on('click', () => {
+        const idx = parseInt($('#horae-prompt-preset-select').val());
+        const presets = settings.promptPresets || [];
+        if (idx < 0 || idx >= presets.length) { showToast('请先选择一个预设', 'warning'); return; }
+        if (!confirm(`确定加载预设「${presets[idx].name}」？\n\n当前所有提示词将被替换为该预设的内容。`)) return;
+        _applyPresetPrompts(presets[idx].prompts);
+        showToast(`已加载预设「${presets[idx].name}」`, 'success');
+    });
+
+    $('#horae-prompt-preset-save').on('click', () => {
+        const idx = parseInt($('#horae-prompt-preset-select').val());
+        const presets = settings.promptPresets || [];
+        if (idx < 0 || idx >= presets.length) { showToast('请先选择一个预设', 'warning'); return; }
+        if (!confirm(`确定将当前提示词保存到预设「${presets[idx].name}」？`)) return;
+        presets[idx].prompts = _collectCurrentPrompts();
+        saveSettings();
+        showToast(`已保存到预设「${presets[idx].name}」`, 'success');
+    });
+
+    $('#horae-prompt-preset-new').on('click', () => {
+        const name = prompt('输入新预设名称：');
+        if (!name?.trim()) return;
+        if (!settings.promptPresets) settings.promptPresets = [];
+        settings.promptPresets.push({ name: name.trim(), prompts: _collectCurrentPrompts() });
+        saveSettings();
+        _renderPresetSelect();
+        $('#horae-prompt-preset-select').val(settings.promptPresets.length - 1);
+        showToast(`已创建预设「${name.trim()}」`, 'success');
+    });
+
+    $('#horae-prompt-preset-delete').on('click', () => {
+        const idx = parseInt($('#horae-prompt-preset-select').val());
+        const presets = settings.promptPresets || [];
+        if (idx < 0 || idx >= presets.length) { showToast('请先选择一个预设', 'warning'); return; }
+        if (!confirm(`确定删除预设「${presets[idx].name}」？此操作不可撤销。`)) return;
+        presets.splice(idx, 1);
+        saveSettings();
+        _renderPresetSelect();
+        showToast('预设已删除', 'success');
     });
 
     $('#horae-btn-agenda-select-all').on('click', selectAllAgenda);
@@ -9884,6 +10040,28 @@ async function _buildSummaryMessages(prompt) {
     return messages;
 }
 
+/**
+ * CORS 感知 fetch：直连失败时自动走 ST /proxy 代理
+ * Electron 不受 CORS 限制直接返回；浏览器遇 TypeError 后自动重试代理路由
+ */
+async function _corsAwareFetch(url, init) {
+    try {
+        return await fetch(url, init);
+    } catch (err) {
+        if (!(err instanceof TypeError)) throw err;
+        const proxyUrl = `${location.origin}/proxy?url=${encodeURIComponent(url)}`;
+        console.log('[Horae] Direct fetch failed (CORS?), retrying via ST proxy:', proxyUrl);
+        try {
+            return await fetch(proxyUrl, init);
+        } catch (_) {
+            throw new Error(
+                'API请求被浏览器CORS拦截，且酒馆代理不可用。\n' +
+                '请在 config.yaml 中设置 enableCorsProxy: true 后重启酒馆。'
+            );
+        }
+    }
+}
+
 /** 直接请求API端点，完全独立于酒馆主连接，支持真并行 */
 async function generateWithDirectApi(prompt) {
     const _model = settings.autoSummaryModel.trim();
@@ -9903,44 +10081,37 @@ async function generateWithDirectApi(prompt) {
         max_tokens: 4096,
         stream: false
     };
-    // 强制注入 safetySettings = BLOCK_NONE（关闭安全审查）
-    // 酒馆后端对 Gemini 自动加此设定；副API直连中转渠道商时必须手动带上
-    // 非 Gemini 的 API 会自动忽略不认识的字段，不会产生副作用
-    const blockNone = [
-        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
-    ];
-    body.safety_settings = blockNone;
-    body.safetySettings = blockNone;
-    console.log(`[Horae] 独立API请求: ${url}, 模型: ${body.model}`);
-    try {
-        const resp = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${settings.autoSummaryApiKey.trim()}`
-            },
-            body: JSON.stringify(body)
-        });
-        if (!resp.ok) {
-            const errText = await resp.text().catch(() => '');
-            throw new Error(`独立API返回 ${resp.status}: ${errText.slice(0, 200)}`);
-        }
-        const data = await resp.json();
-        const finishReason = data?.choices?.[0]?.finish_reason || '';
-        if (finishReason === 'content_filter' || finishReason === 'SAFETY') {
-            throw new Error('副API安全过滤拦截，建议：降低批次token上限 或 换用限制更宽松的模型');
-        }
-        return data?.choices?.[0]?.message?.content || '';
-    } catch (err) {
-        if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
-            throw new Error('独立API请求被浏览器拦截（CORS），请确认端点地址或在酒馆 config.yaml 中启用 enableCorsProxy');
-        }
-        throw err;
+    // 仅当端点疑似 Gemini 系渠道时才注入 safetySettings（纯 OpenAI 端点会拒绝未知字段返回 400）
+    if (/gemini|google|generativelanguage/i.test(url) || /gemini/i.test(body.model)) {
+        const blockNone = [
+            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+        ];
+        body.safety_settings = blockNone;
+        body.safetySettings = blockNone;
     }
+    console.log(`[Horae] 独立API请求: ${url}, 模型: ${body.model}`);
+    const resp = await _corsAwareFetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${settings.autoSummaryApiKey.trim()}`
+        },
+        body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+        const errText = await resp.text().catch(() => '');
+        throw new Error(`独立API返回 ${resp.status}: ${errText.slice(0, 200)}`);
+    }
+    const data = await resp.json();
+    const finishReason = data?.choices?.[0]?.finish_reason || '';
+    if (finishReason === 'content_filter' || finishReason === 'SAFETY') {
+        throw new Error('副API安全过滤拦截，建议：降低批次token上限 或 换用限制更宽松的模型');
+    }
+    return data?.choices?.[0]?.message?.content || '';
 }
 
 /**
@@ -10016,49 +10187,42 @@ async function _geminiNativeRequest(prompt, rawUrl, model, apiKey) {
     console.log(`[Horae] Gemini原生API: ${endpointUrl}, threshold: ${threshold}`);
 
     // ── 5. 发送请求 + 解析原生响应 ──
-    try {
-        const resp = await fetch(endpointUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
-        });
+    const resp = await _corsAwareFetch(endpointUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+    });
 
-        if (!resp.ok) {
-            const errText = await resp.text().catch(() => '');
-            throw new Error(`Gemini原生API ${resp.status}: ${errText.slice(0, 300)}`);
-        }
-
-        const data = await resp.json();
-
-        if (data?.promptFeedback?.blockReason) {
-            throw new Error(`Gemini输入安全拦截: ${data.promptFeedback.blockReason}`);
-        }
-
-        const candidates = data?.candidates;
-        if (!candidates?.length) {
-            throw new Error('Gemini API未返回候选内容');
-        }
-
-        if (candidates[0]?.finishReason === 'SAFETY') {
-            throw new Error('Gemini输出安全拦截，建议换用限制更宽松的模型');
-        }
-
-        const text = candidates[0]?.content?.parts
-            ?.filter(p => !p.thought)
-            ?.map(p => p.text)
-            ?.join('\n\n') || '';
-
-        if (!text) {
-            throw new Error(`Gemini返回空内容 (finishReason: ${candidates[0]?.finishReason || '?'})`);
-        }
-
-        return text;
-    } catch (err) {
-        if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
-            throw new Error('Gemini原生API被浏览器拦截(CORS)，请确认端点地址或在酒馆 config.yaml 中启用 enableCorsProxy');
-        }
-        throw err;
+    if (!resp.ok) {
+        const errText = await resp.text().catch(() => '');
+        throw new Error(`Gemini原生API ${resp.status}: ${errText.slice(0, 300)}`);
     }
+
+    const data = await resp.json();
+
+    if (data?.promptFeedback?.blockReason) {
+        throw new Error(`Gemini输入安全拦截: ${data.promptFeedback.blockReason}`);
+    }
+
+    const candidates = data?.candidates;
+    if (!candidates?.length) {
+        throw new Error('Gemini API未返回候选内容');
+    }
+
+    if (candidates[0]?.finishReason === 'SAFETY') {
+        throw new Error('Gemini输出安全拦截，建议换用限制更宽松的模型');
+    }
+
+    const text = candidates[0]?.content?.parts
+        ?.filter(p => !p.thought)
+        ?.map(p => p.text)
+        ?.join('\n\n') || '';
+
+    if (!text) {
+        throw new Error(`Gemini返回空内容 (finishReason: ${candidates[0]?.finishReason || '?'})`);
+    }
+
+    return text;
 }
 
 /** 自动摘要：检查是否需要触发 */

@@ -2081,6 +2081,17 @@
     min-width: 0;
 }
 
+.horae-npc-birthday {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    background: rgba(251, 191, 36, 0.10);
+    color: var(--horae-text-muted);
+}
+
 .horae-npc-note {
     display: inline-flex;
     align-items: center;
@@ -5201,4 +5212,26 @@ body .horae-context-menu {
     .horae-loc-actions,
     .horae-agenda-delete,
     .horae-item-lock-btn { opacity: 1; }
+}
+
+/* ── 提示词预设工具栏 ── */
+.horae-prompt-presets-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    background: rgba(255,255,255,.03);
+    border: 1px solid var(--horae-border);
+    border-radius: 8px;
+}
+.horae-prompt-presets-bar select {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 8px;
+    background: var(--horae-bg);
+    border: 1px solid var(--horae-border);
+    border-radius: 4px;
+    color: var(--horae-text);
+    font-size: 12px;
 }
