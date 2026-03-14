@@ -3,7 +3,7 @@
  * 基于时间锚点的AI记忆增强系统
  * 
  * 作者: SenriYuki
- * 版本: 1.9.4
+ * 版本: 1.9.5
  */
 
 import { renderExtensionTemplateAsync, getContext, extension_settings } from '/scripts/extensions.js';
@@ -20,7 +20,7 @@ import { calculateRelativeTime, calculateDetailedRelativeTime, formatRelativeTim
 const EXTENSION_NAME = 'horae';
 const EXTENSION_FOLDER = `third-party/SillyTavern-Horae`;
 const TEMPLATE_PATH = `${EXTENSION_FOLDER}/assets/templates`;
-const VERSION = '1.9.4';
+const VERSION = '1.9.5';
 
 // 配套正则规则（自动注入ST原生正则系统）
 const HORAE_REGEX_RULES = [
@@ -28,7 +28,7 @@ const HORAE_REGEX_RULES = [
         id: 'horae_hide',
         scriptName: 'Horae - 隐藏状态标签',
         description: '隐藏<horae>状态标签，不显示在正文，不发送给AI',
-        findRegex: '/(?:<horae>(?:(?!<\\/think(?:ing)?>)[\\s\\S])*?<\\/horae>|<!--horae[\\s\\S]*?-->)/gim',
+        findRegex: '/(?:<horae>(?:(?!<\\/think(?:ing)?>|<horae>)[\\s\\S])*?<\\/horae>|<!--horae[\\s\\S]*?-->)/gim',
         replaceString: '',
         trimStrings: [],
         placement: [2],
@@ -44,7 +44,7 @@ const HORAE_REGEX_RULES = [
         id: 'horae_event_display_only',
         scriptName: 'Horae - 隐藏事件标签',
         description: '隐藏<horaeevent>事件标签的显示，不发送给AI',
-        findRegex: '/<horaeevent>(?:(?!<\\/think(?:ing)?>)[\\s\\S])*?<\\/horaeevent>/gim',
+        findRegex: '/<horaeevent>(?:(?!<\\/think(?:ing)?>|<horaeevent>)[\\s\\S])*?<\\/horaeevent>/gim',
         replaceString: '',
         trimStrings: [],
         placement: [2],
@@ -76,7 +76,7 @@ const HORAE_REGEX_RULES = [
         id: 'horae_rpg_hide',
         scriptName: 'Horae - 隐藏RPG标签',
         description: '隐藏<horaerpg>标签，不显示在正文，不发送给AI',
-        findRegex: '/<horaerpg>(?:(?!<\\/think(?:ing)?>)[\\s\\S])*?<\\/horaerpg>/gim',
+        findRegex: '/<horaerpg>(?:(?!<\\/think(?:ing)?>|<horaerpg>)[\\s\\S])*?<\\/horaerpg>/gim',
         replaceString: '',
         trimStrings: [],
         placement: [2],
@@ -3054,14 +3054,19 @@ function openNpcEditModal(npcName) {
     
     const isPinned = (settings.pinnedNpcs || []).includes(npcName);
     
-    // 性别选项
+    // 性别选项：预设值以外的自动归入「自定义」
     const genderVal = npc.gender || '';
+    const presetGenders = ['', '男', '女'];
+    const isCustomGender = genderVal !== '' && !presetGenders.includes(genderVal);
     const genderOptions = [
         { val: '', label: '未知' },
         { val: '男', label: '男' },
         { val: '女', label: '女' },
-        { val: '其他', label: '其他' }
-    ].map(o => `<option value="${o.val}" ${genderVal === o.val ? 'selected' : ''}>${o.label}</option>`).join('');
+        { val: '__custom__', label: '自定义' }
+    ].map(o => {
+        const selected = isCustomGender ? o.val === '__custom__' : genderVal === o.val;
+        return `<option value="${o.val}" ${selected ? 'selected' : ''}>${o.label}</option>`;
+    }).join('');
     
     const modalHtml = `
         <div id="horae-edit-modal" class="horae-modal">
@@ -3085,6 +3090,7 @@ function openNpcEditModal(npcName) {
                         <div class="horae-edit-field horae-edit-field-compact">
                             <label>性别</label>
                             <select id="edit-npc-gender">${genderOptions}</select>
+                            <input type="text" id="edit-npc-gender-custom" value="${isCustomGender ? genderVal : ''}" placeholder="输入自定义性别" style="display:${isCustomGender ? 'block' : 'none'};margin-top:4px;">
                         </div>
                         <div class="horae-edit-field horae-edit-field-compact">
                             <label>年龄${(() => {
@@ -3141,6 +3147,12 @@ function openNpcEditModal(npcName) {
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     preventModalBubble();
     
+    document.getElementById('edit-npc-gender').addEventListener('change', function() {
+        const customInput = document.getElementById('edit-npc-gender-custom');
+        customInput.style.display = this.value === '__custom__' ? 'block' : 'none';
+        if (this.value !== '__custom__') customInput.value = '';
+    });
+    
     // 删除NPC（完整级联：npcs/affection/relationships/mood/costumes/RPG + 防回滚）
     document.getElementById('edit-modal-delete').addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -3166,7 +3178,9 @@ function openNpcEditModal(npcName) {
             appearance: document.getElementById('edit-npc-appearance').value,
             personality: document.getElementById('edit-npc-personality').value,
             relationship: document.getElementById('edit-npc-relationship').value,
-            gender: document.getElementById('edit-npc-gender').value,
+            gender: document.getElementById('edit-npc-gender').value === '__custom__'
+                ? document.getElementById('edit-npc-gender-custom').value.trim()
+                : document.getElementById('edit-npc-gender').value,
             age: newAge,
             race: document.getElementById('edit-npc-race').value,
             job: document.getElementById('edit-npc-job').value,
@@ -11847,6 +11861,9 @@ async function onChatChanged() {
     
     setTimeout(() => {
         try {
+            horaeManager.init(getContext(), settings);
+            renderCustomTablesList();
+
             document.querySelectorAll('.mes:not(.horae-processed)').forEach(messageEl => {
                 const messageId = parseInt(messageEl.getAttribute('mesid'));
                 if (!isNaN(messageId)) {
