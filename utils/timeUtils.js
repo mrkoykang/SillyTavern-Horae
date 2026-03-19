@@ -150,8 +150,13 @@ export function parseStoryDate(dateStr) {
 export function calculateRelativeTime(fromDate, toDate) {
     if (!fromDate || !toDate) return null;
     
-    const fromDateOnly = fromDate.split(/\s+/)[0].trim();
-    const toDateOnly = toDate.split(/\s+/)[0].trim();
+    // 去掉尾部时间部分（如 "15:00" / "下午" / "酉时"），保留完整日期进行比较
+    const stripTime = (s) => s.trim()
+        .replace(/\s+\d{1,2}[:：]\d{2}.*$/, '')
+        .replace(/\s+(凌晨|早上|上午|中午|下午|傍晚|晚上|深夜|子时|丑时|寅时|卯时|辰时|巳时|午时|未时|申时|酉时|戌时|亥时).*$/i, '')
+        .trim();
+    const fromDateOnly = stripTime(fromDate);
+    const toDateOnly = stripTime(toDate);
     
     if (fromDateOnly === toDateOnly) {
         return 0;

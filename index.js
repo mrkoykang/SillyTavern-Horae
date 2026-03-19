@@ -3,7 +3,7 @@
  * 基于时间锚点的AI记忆增强系统
  * 
  * 作者: SenriYuki
- * 版本: 1.10.0
+ * 版本: 1.10.1
  */
 
 import { renderExtensionTemplateAsync, getContext, extension_settings } from '/scripts/extensions.js';
@@ -20,7 +20,7 @@ import { calculateRelativeTime, calculateDetailedRelativeTime, formatRelativeTim
 const EXTENSION_NAME = 'horae';
 const EXTENSION_FOLDER = `third-party/SillyTavern-Horae`;
 const TEMPLATE_PATH = `${EXTENSION_FOLDER}/assets/templates`;
-const VERSION = '1.10.0';
+const VERSION = '1.10.1';
 
 // 配套正则规则（自动注入ST原生正则系统）
 const HORAE_REGEX_RULES = [
@@ -148,12 +148,20 @@ const DEFAULT_SETTINGS = {
     // RPG 模式
     rpgMode: false,                 // RPG 模式总开关
     sendRpgBars: true,              // 发送属性条（HP/MP/SP/状态）
+    rpgBarsUserOnly: false,         // 属性条仅限主角
     sendRpgSkills: true,            // 发送技能列表
+    rpgSkillsUserOnly: false,       // 技能仅限主角
     sendRpgAttributes: true,        // 发送多维属性面板
+    rpgAttrsUserOnly: false,        // 属性面板仅限主角
     sendRpgReputation: true,        // 发送声望数据
+    rpgReputationUserOnly: false,   // 声望仅限主角
     sendRpgEquipment: false,        // 发送装备栏（可选）
+    rpgEquipmentUserOnly: false,    // 装备仅限主角
     sendRpgLevel: false,            // 发送等级/经验值
+    rpgLevelUserOnly: false,        // 等级仅限主角
     sendRpgCurrency: false,         // 发送货币系统
+    rpgCurrencyUserOnly: false,     // 货币仅限主角
+    rpgUserOnly: false,             // RPG全局仅限主角（总开关，联动所有子模块）
     sendRpgStronghold: false,       // 发送据点/基地系统
     rpgBarConfig: [
         { key: 'hp', name: 'HP', color: '#22c55e' },
@@ -10421,6 +10429,92 @@ function initSettingsEvents() {
         showToast('已将所有提示词恢复为默认值', 'success');
     });
 
+    // ── Horae 全局配置 导出/导入/重置 ──
+    const _SETTINGS_EXPORT_KEYS = [
+        'enabled','autoParse','injectContext','showMessagePanel','showTopIcon',
+        'contextDepth','injectionPosition',
+        'sendTimeline','sendCharacters','sendItems',
+        'sendLocationMemory','sendRelationships','sendMood',
+        'antiParaphraseMode','sideplayMode',
+        'aiScanIncludeNpc','aiScanIncludeAffection','aiScanIncludeScene','aiScanIncludeRelationship',
+        'rpgMode','sendRpgBars','sendRpgSkills','sendRpgAttributes','sendRpgReputation',
+        'sendRpgEquipment','sendRpgLevel','sendRpgCurrency','sendRpgStronghold','rpgDiceEnabled',
+        'rpgBarsUserOnly','rpgSkillsUserOnly','rpgAttrsUserOnly','rpgReputationUserOnly',
+        'rpgEquipmentUserOnly','rpgLevelUserOnly','rpgCurrencyUserOnly','rpgUserOnly',
+        'rpgBarConfig','rpgAttributeConfig','rpgAttrViewMode','equipmentTemplates',
+        ..._PRESET_PROMPT_KEYS,
+    ];
+
+    $('#horae-settings-export').on('click', () => {
+        const payload = {};
+        for (const k of _SETTINGS_EXPORT_KEYS) {
+            if (settings[k] !== undefined) payload[k] = JSON.parse(JSON.stringify(settings[k]));
+        }
+        const data = { type: 'horae-settings', version: VERSION, settings: payload };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `horae-settings_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        showToast('全局配置已导出', 'success');
+    });
+
+    $('#horae-settings-import').on('click', () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = async (e) => {
+            try {
+                const file = e.target.files[0];
+                if (!file) return;
+                const text = await file.text();
+                const data = JSON.parse(text);
+                if (data.type !== 'horae-settings' || !data.settings) {
+                    showToast('文件格式不正确，请选择 Horae 配置档文件', 'error');
+                    return;
+                }
+                const imported = data.settings;
+                const keys = Object.keys(imported).filter(k => _SETTINGS_EXPORT_KEYS.includes(k));
+                if (keys.length === 0) {
+                    showToast('配置文件中无可用设置', 'warning');
+                    return;
+                }
+                if (!confirm(`即将导入 ${keys.length} 项设置（来自 v${data.version || '?'}）。\n当前设置将被覆盖，确定继续？`)) return;
+                for (const k of keys) {
+                    settings[k] = JSON.parse(JSON.stringify(imported[k]));
+                }
+                saveSettings();
+                syncSettingsToUI();
+                try { renderBarConfig(); } catch (_) {}
+                try { renderAttrConfig(); } catch (_) {}
+                horaeManager.init(getContext(), settings);
+                _refreshSystemPromptDisplay();
+                updateTokenCounter();
+                showToast(`已导入 ${keys.length} 项设置`, 'success');
+            } catch (err) {
+                console.error('[Horae] 导入配置失败:', err);
+                showToast('导入失败：' + err.message, 'error');
+            }
+        };
+        input.click();
+    });
+
+    $('#horae-settings-reset').on('click', () => {
+        if (!confirm('⚠️ 确定将所有设置恢复为默认值？\n\n这将重置以下全部内容：\n• 所有功能开关\n• 仅限主角设置\n• 所有自定义提示词\n• RPG 属性条/属性面板/装备模板配置\n\n不受影响的内容：自动摘要参数、向量记忆、表格、主题、预设存档等。')) return;
+        for (const k of _SETTINGS_EXPORT_KEYS) {
+            settings[k] = JSON.parse(JSON.stringify(DEFAULT_SETTINGS[k]));
+        }
+        saveSettings();
+        syncSettingsToUI();
+        try { renderBarConfig(); } catch (_) {}
+        try { renderAttrConfig(); } catch (_) {}
+        horaeManager.init(getContext(), settings);
+        _refreshSystemPromptDisplay();
+        updateTokenCounter();
+        showToast('已将所有设置恢复为默认值', 'success');
+    });
+
     $('#horae-btn-agenda-select-all').on('click', selectAllAgenda);
     $('#horae-btn-agenda-delete').on('click', deleteSelectedAgenda);
     $('#horae-btn-agenda-cancel-select').on('click', exitAgendaMultiSelect);
@@ -10544,60 +10638,58 @@ function initSettingsEvents() {
         updateTokenCounter();
         if (this.checked) updateRpgDisplay();
     });
-    $('#horae-setting-rpg-bars').on('change', function() {
-        settings.sendRpgBars = this.checked;
+    // RPG 仅限主角 - 总开关联动所有子模块
+    const _rpgUoKeys = ['rpgBarsUserOnly','rpgSkillsUserOnly','rpgAttrsUserOnly','rpgReputationUserOnly','rpgEquipmentUserOnly','rpgLevelUserOnly','rpgCurrencyUserOnly'];
+    const _rpgUoIds = ['bars','skills','attrs','reputation','equipment','level','currency'];
+    function _syncRpgUserOnlyMaster() {
+        const allOn = _rpgUoKeys.every(k => !!settings[k]);
+        settings.rpgUserOnly = allOn;
+        $('#horae-setting-rpg-user-only').prop('checked', allOn);
+    }
+    function _rpgUoRefresh() {
         saveSettings();
-        _syncRpgTabVisibility();
         horaeManager.init(getContext(), settings);
         _refreshSystemPromptDisplay();
         updateTokenCounter();
         updateRpgDisplay();
+    }
+    $('#horae-setting-rpg-user-only').on('change', function() {
+        const val = this.checked;
+        settings.rpgUserOnly = val;
+        for (const k of _rpgUoKeys) settings[k] = val;
+        for (const id of _rpgUoIds) $(`#horae-setting-rpg-${id}-uo`).prop('checked', val);
+        _rpgUoRefresh();
     });
-    $('#horae-setting-rpg-skills').on('change', function() {
-        settings.sendRpgSkills = this.checked;
-        saveSettings();
-        _syncRpgTabVisibility();
-        horaeManager.init(getContext(), settings);
-        _refreshSystemPromptDisplay();
-        updateTokenCounter();
-        updateRpgDisplay();
-    });
-    $('#horae-setting-rpg-reputation').on('change', function() {
-        settings.sendRpgReputation = this.checked;
-        saveSettings();
-        _syncRpgTabVisibility();
-        horaeManager.init(getContext(), settings);
-        _refreshSystemPromptDisplay();
-        updateTokenCounter();
-        updateRpgDisplay();
-    });
-    $('#horae-setting-rpg-equipment').on('change', function() {
-        settings.sendRpgEquipment = this.checked;
-        saveSettings();
-        _syncRpgTabVisibility();
-        horaeManager.init(getContext(), settings);
-        _refreshSystemPromptDisplay();
-        updateTokenCounter();
-        updateRpgDisplay();
-    });
-    $('#horae-setting-rpg-level').on('change', function() {
-        settings.sendRpgLevel = this.checked;
-        saveSettings();
-        _syncRpgTabVisibility();
-        horaeManager.init(getContext(), settings);
-        _refreshSystemPromptDisplay();
-        updateTokenCounter();
-        updateRpgDisplay();
-    });
-    $('#horae-setting-rpg-currency').on('change', function() {
-        settings.sendRpgCurrency = this.checked;
-        saveSettings();
-        _syncRpgTabVisibility();
-        horaeManager.init(getContext(), settings);
-        _refreshSystemPromptDisplay();
-        updateTokenCounter();
-        updateRpgDisplay();
-    });
+    for (let i = 0; i < _rpgUoIds.length; i++) {
+        const id = _rpgUoIds[i], key = _rpgUoKeys[i];
+        $(`#horae-setting-rpg-${id}-uo`).on('change', function() {
+            settings[key] = this.checked;
+            _syncRpgUserOnlyMaster();
+            _rpgUoRefresh();
+        });
+    }
+    // 各模块开关 + 子开关显示/隐藏
+    const _rpgModulePairs = [
+        { checkId: 'horae-setting-rpg-bars', settingKey: 'sendRpgBars', uoId: 'horae-setting-rpg-bars-uo' },
+        { checkId: 'horae-setting-rpg-skills', settingKey: 'sendRpgSkills', uoId: 'horae-setting-rpg-skills-uo' },
+        { checkId: 'horae-setting-rpg-attrs', settingKey: 'sendRpgAttributes', uoId: 'horae-setting-rpg-attrs-uo' },
+        { checkId: 'horae-setting-rpg-reputation', settingKey: 'sendRpgReputation', uoId: 'horae-setting-rpg-reputation-uo' },
+        { checkId: 'horae-setting-rpg-equipment', settingKey: 'sendRpgEquipment', uoId: 'horae-setting-rpg-equipment-uo' },
+        { checkId: 'horae-setting-rpg-level', settingKey: 'sendRpgLevel', uoId: 'horae-setting-rpg-level-uo' },
+        { checkId: 'horae-setting-rpg-currency', settingKey: 'sendRpgCurrency', uoId: 'horae-setting-rpg-currency-uo' },
+    ];
+    for (const m of _rpgModulePairs) {
+        $(`#${m.checkId}`).on('change', function() {
+            settings[m.settingKey] = this.checked;
+            $(`#${m.uoId}`).closest('label').toggle(this.checked);
+            saveSettings();
+            _syncRpgTabVisibility();
+            horaeManager.init(getContext(), settings);
+            _refreshSystemPromptDisplay();
+            updateTokenCounter();
+            updateRpgDisplay();
+        });
+    }
     $('#horae-setting-rpg-stronghold').on('change', function() {
         settings.sendRpgStronghold = this.checked;
         saveSettings();
@@ -11150,10 +11242,25 @@ function syncSettingsToUI() {
     $('#horae-setting-rpg-bars').prop('checked', settings.sendRpgBars !== false);
     $('#horae-setting-rpg-attrs').prop('checked', settings.sendRpgAttributes !== false);
     $('#horae-setting-rpg-skills').prop('checked', settings.sendRpgSkills !== false);
+    $('#horae-setting-rpg-user-only').prop('checked', !!settings.rpgUserOnly);
+    $('#horae-setting-rpg-bars-uo').prop('checked', !!settings.rpgBarsUserOnly);
+    $('#horae-setting-rpg-bars-uo').closest('label').toggle(settings.sendRpgBars !== false);
+    $('#horae-setting-rpg-attrs-uo').prop('checked', !!settings.rpgAttrsUserOnly);
+    $('#horae-setting-rpg-attrs-uo').closest('label').toggle(settings.sendRpgAttributes !== false);
+    $('#horae-setting-rpg-skills-uo').prop('checked', !!settings.rpgSkillsUserOnly);
+    $('#horae-setting-rpg-skills-uo').closest('label').toggle(settings.sendRpgSkills !== false);
     $('#horae-setting-rpg-reputation').prop('checked', !!settings.sendRpgReputation);
+    $('#horae-setting-rpg-reputation-uo').prop('checked', !!settings.rpgReputationUserOnly);
+    $('#horae-setting-rpg-reputation-uo').closest('label').toggle(!!settings.sendRpgReputation);
     $('#horae-setting-rpg-equipment').prop('checked', !!settings.sendRpgEquipment);
+    $('#horae-setting-rpg-equipment-uo').prop('checked', !!settings.rpgEquipmentUserOnly);
+    $('#horae-setting-rpg-equipment-uo').closest('label').toggle(!!settings.sendRpgEquipment);
     $('#horae-setting-rpg-level').prop('checked', !!settings.sendRpgLevel);
+    $('#horae-setting-rpg-level-uo').prop('checked', !!settings.rpgLevelUserOnly);
+    $('#horae-setting-rpg-level-uo').closest('label').toggle(!!settings.sendRpgLevel);
     $('#horae-setting-rpg-currency').prop('checked', !!settings.sendRpgCurrency);
+    $('#horae-setting-rpg-currency-uo').prop('checked', !!settings.rpgCurrencyUserOnly);
+    $('#horae-setting-rpg-currency-uo').closest('label').toggle(!!settings.sendRpgCurrency);
     $('#horae-setting-rpg-stronghold').prop('checked', !!settings.sendRpgStronghold);
     $('#horae-setting-rpg-dice').prop('checked', !!settings.rpgDiceEnabled);
     $('#horae-rpg-prompt-group').toggle(!!settings.rpgMode);

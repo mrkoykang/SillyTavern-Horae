@@ -733,6 +733,13 @@ class HoraeManager {
             // 按在场角色过滤 RPG 数据（无场景数据时发送全部）
             const presentChars = state.scene.characters_present || [];
             const userName = this.context?.name1 || '';
+            const _cUoB = !!this.settings?.rpgBarsUserOnly;
+            const _cUoS = !!this.settings?.rpgSkillsUserOnly;
+            const _cUoA = !!this.settings?.rpgAttrsUserOnly;
+            const _cUoE = !!this.settings?.rpgEquipmentUserOnly;
+            const _cUoR = !!this.settings?.rpgReputationUserOnly;
+            const _cUoL = !!this.settings?.rpgLevelUserOnly;
+            const _cUoC = !!this.settings?.rpgCurrencyUserOnly;
             const allRpgNames = new Set([
                 ...Object.keys(rpg.bars), ...Object.keys(rpg.status || {}),
                 ...Object.keys(rpg.skills), ...Object.keys(rpg.attributes || {}),
@@ -753,13 +760,18 @@ class HoraeManager {
                 }
             }
             const filterRpg = rpgAllowed.size > 0;
+            // userOnly时构建行不带角色名前缀
+            const _ctxPre = (name, isUo) => {
+                if (isUo) return '';
+                const npc = state.npcs[name];
+                return npc?._id ? `N${npc._id} ${name}: ` : `${name}: `;
+            };
 
             if (sendBars && Object.keys(rpg.bars).length > 0) {
                 lines.push('\n[RPG状态]');
                 for (const [name, bars] of Object.entries(rpg.bars)) {
+                    if (_cUoB && name !== userName) continue;
                     if (filterRpg && !rpgAllowed.has(name)) continue;
-                    const npc = state.npcs[name];
-                    const pre = npc?._id ? `N${npc._id} ` : '';
                     const parts = [];
                     for (const [type, val] of Object.entries(bars)) {
                         const label = val[2] || _barNames[type] || type.toUpperCase();
@@ -767,28 +779,30 @@ class HoraeManager {
                     }
                     const sts = rpg.status?.[name];
                     if (sts?.length > 0) parts.push(`状态:${sts.join('/')}`);
-                    if (parts.length > 0) lines.push(`${pre}${name}: ${parts.join(' | ')}`);
+                    if (parts.length > 0) lines.push(`${_ctxPre(name, _cUoB)}${parts.join(' | ')}`);
                 }
                 for (const [name, effects] of Object.entries(rpg.status || {})) {
                     if (rpg.bars[name] || effects.length === 0) continue;
+                    if (_cUoB && name !== userName) continue;
                     if (filterRpg && !rpgAllowed.has(name)) continue;
-                    const npc = state.npcs[name];
-                    const pre = npc?._id ? `N${npc._id} ` : '';
-                    lines.push(`${pre}${name}: 状态:${effects.join('/')}`);
+                    lines.push(`${_ctxPre(name, _cUoB)}状态:${effects.join('/')}`);
                 }
             }
 
             if (sendSkills && Object.keys(rpg.skills).length > 0) {
                 const hasAny = Object.entries(rpg.skills).some(([n, arr]) =>
-                    arr?.length > 0 && (!filterRpg || rpgAllowed.has(n)));
+                    arr?.length > 0 && (!_cUoS || n === userName) && (!filterRpg || rpgAllowed.has(n)));
                 if (hasAny) {
                     lines.push('\n[技能列表]');
                     for (const [name, skills] of Object.entries(rpg.skills)) {
                         if (!skills?.length) continue;
+                        if (_cUoS && name !== userName) continue;
                         if (filterRpg && !rpgAllowed.has(name)) continue;
-                        const npc = state.npcs[name];
-                        const pre = npc?._id ? `N${npc._id} ` : '';
-                        lines.push(`${pre}${name}:`);
+                        if (!_cUoS) {
+                            const npc = state.npcs[name];
+                            const pre = npc?._id ? `N${npc._id} ` : '';
+                            lines.push(`${pre}${name}:`);
+                        }
                         for (const sk of skills) {
                             const lv = sk.level ? ` ${sk.level}` : '';
                             const desc = sk.desc ? ` | ${sk.desc}` : '';
@@ -803,11 +817,10 @@ class HoraeManager {
             if (sendAttrs && attrCfg.length > 0 && Object.keys(rpg.attributes || {}).length > 0) {
                 lines.push('\n[多维属性]');
                 for (const [name, vals] of Object.entries(rpg.attributes)) {
+                    if (_cUoA && name !== userName) continue;
                     if (filterRpg && !rpgAllowed.has(name)) continue;
-                    const npc = state.npcs[name];
-                    const pre = npc?._id ? `N${npc._id} ` : '';
                     const parts = attrCfg.map(a => `${a.name}${vals[a.key] ?? '?'}`);
-                    lines.push(`${pre}${name}: ${parts.join(' | ')}`);
+                    lines.push(`${_ctxPre(name, _cUoA)}${parts.join(' | ')}`);
                 }
             }
 
@@ -818,6 +831,7 @@ class HoraeManager {
             if (sendEq && Object.keys(rpg.equipment || {}).length > 0) {
                 let hasEqData = false;
                 for (const [name, slots] of Object.entries(rpg.equipment)) {
+                    if (_cUoE && name !== userName) continue;
                     if (filterRpg && !rpgAllowed.has(name)) continue;
                     const ownerCfg = eqPerChar[name];
                     const validEqSlots = (ownerCfg && Array.isArray(ownerCfg.slots))
@@ -837,9 +851,7 @@ class HoraeManager {
                     }
                     if (parts.length > 0) {
                         if (!hasEqData) { lines.push('\n[装备]'); hasEqData = true; }
-                        const npc = state.npcs[name];
-                        const pre = npc?._id ? `N${npc._id} ` : '';
-                        lines.push(`${pre}${name}: ${parts.join(' | ')}`);
+                        lines.push(`${_ctxPre(name, _cUoE)}${parts.join(' | ')}`);
                     }
                 }
             }
@@ -852,6 +864,7 @@ class HoraeManager {
                 const deletedRepNames = new Set(repConfig._deletedCategories || []);
                 let hasRepData = false;
                 for (const [name, cats] of Object.entries(rpg.reputation)) {
+                    if (_cUoR && name !== userName) continue;
                     if (filterRpg && !rpgAllowed.has(name)) continue;
                     const parts = [];
                     for (const [catName, data] of Object.entries(cats)) {
@@ -860,9 +873,7 @@ class HoraeManager {
                     }
                     if (parts.length > 0) {
                         if (!hasRepData) { lines.push('\n[声望]'); hasRepData = true; }
-                        const npc = state.npcs[name];
-                        const pre = npc?._id ? `N${npc._id} ` : '';
-                        lines.push(`${pre}${name}: ${parts.join(' | ')}`);
+                        lines.push(`${_ctxPre(name, _cUoR)}${parts.join(' | ')}`);
                     }
                 }
             }
@@ -873,16 +884,15 @@ class HoraeManager {
                 const allLvlNames = new Set([...Object.keys(rpg.levels || {}), ...Object.keys(rpg.xp || {})]);
                 let hasLvlData = false;
                 for (const name of allLvlNames) {
+                    if (_cUoL && name !== userName) continue;
                     if (filterRpg && !rpgAllowed.has(name)) continue;
                     const lv = rpg.levels?.[name];
                     const xp = rpg.xp?.[name];
                     if (lv == null && !xp) continue;
                     if (!hasLvlData) { lines.push('\n[等级]'); hasLvlData = true; }
-                    const npc = state.npcs[name];
-                    const pre = npc?._id ? `N${npc._id} ` : '';
                     let lvStr = lv != null ? `Lv.${lv}` : '';
                     if (xp) lvStr += ` (经验: ${xp[0]}/${xp[1]})`;
-                    lines.push(`${pre}${name}: ${lvStr.trim()}`);
+                    lines.push(`${_ctxPre(name, _cUoL)}${lvStr.trim()}`);
                 }
             }
 
@@ -892,6 +902,7 @@ class HoraeManager {
             if (sendCur && curConfig.denominations.length > 0 && Object.keys(rpg.currency || {}).length > 0) {
                 let hasCurData = false;
                 for (const [name, coins] of Object.entries(rpg.currency)) {
+                    if (_cUoC && name !== userName) continue;
                     if (filterRpg && !rpgAllowed.has(name)) continue;
                     const parts = [];
                     for (const d of curConfig.denominations) {
@@ -900,9 +911,7 @@ class HoraeManager {
                     }
                     if (parts.length > 0) {
                         if (!hasCurData) { lines.push('\n[货币]'); hasCurData = true; }
-                        const npc = state.npcs[name];
-                        const pre = npc?._id ? `N${npc._id} ` : '';
-                        lines.push(`${pre}${name}: ${parts.join(', ')}`);
+                        lines.push(`${_ctxPre(name, _cUoC)}${parts.join(', ')}`);
                     }
                 }
             }
@@ -1013,10 +1022,24 @@ class HoraeManager {
                 const allToShow = [...criticalAndImportant, ...normalEvents]
                     .sort((a, b) => (a.messageIndex || 0) - (b.messageIndex || 0));
                 
+                // 预构建 summaryId→日期范围 映射，让摘要事件带上时间跨度
+                const _sumDateRanges = {};
+                for (const s of autoSums) {
+                    if (!s.active || !s.originalEvents?.length) continue;
+                    const dates = s.originalEvents.map(oe => oe.timestamp?.story_date).filter(Boolean);
+                    if (dates.length > 0) {
+                        const first = dates[0], last = dates[dates.length - 1];
+                        _sumDateRanges[s.id] = first === last ? first : `${first}~${last}`;
+                    }
+                }
+
                 for (const e of allToShow) {
                     const isSummary = e.event?.isSummary || e.event?.level === '摘要';
                     if (isSummary) {
-                        lines.push(`📋 [摘要]: ${e.event.summary}`);
+                        const dateRange = e.event?._summaryId ? _sumDateRanges[e.event._summaryId] : '';
+                        const dateTag = dateRange ? `·${dateRange}` : '';
+                        const relTag = dateRange ? getRelativeDesc(dateRange.split('~')[0]) : '';
+                        lines.push(`📋 [摘要${dateTag}]${relTag}: ${e.event.summary}`);
                     } else {
                         const mark = getLevelMark(e.event?.level);
                         const date = e.timestamp?.story_date || '?';
@@ -1547,54 +1570,85 @@ class HoraeManager {
 
     /** 解析单行 RPG 数据 */
     _parseRpgLine(line, rpg) {
-        // 属性条: key:owner=cur/max 或 key:owner=cur/max(显示名)
-        const barMatch = line.match(/^([a-zA-Z]\w*):(.+?)=(\d+)\s*\/\s*(\d+)(?:\((.+?)\))?$/i);
-        if (barMatch && !/^(status|skill)$/i.test(barMatch[1])) {
-            const type = barMatch[1].toLowerCase();
-            const owner = barMatch[2].trim();
-            const current = parseInt(barMatch[3]);
-            const max = parseInt(barMatch[4]);
-            const label = barMatch[5]?.trim() || null;
+        const _uoName = this.context?.name1 || '主角';
+        const _uoB = !!this.settings?.rpgBarsUserOnly;
+        const _uoS = !!this.settings?.rpgSkillsUserOnly;
+        const _uoA = !!this.settings?.rpgAttrsUserOnly;
+        const _uoE = !!this.settings?.rpgEquipmentUserOnly;
+        const _uoR = !!this.settings?.rpgReputationUserOnly;
+        const _uoL = !!this.settings?.rpgLevelUserOnly;
+        const _uoC = !!this.settings?.rpgCurrencyUserOnly;
+
+        // 通用：检测行是否为无owner的userOnly格式（首段含=即正常格式，否则可能是UO格式）
+        // 属性条: 正常 key:owner=cur/max 或 userOnly key:cur/max(显示名)
+        const barNormal = line.match(/^([a-zA-Z]\w*):(.+?)=(\d+)\s*\/\s*(\d+)(?:\((.+?)\))?$/i);
+        const barUo = _uoB ? line.match(/^([a-zA-Z]\w*):(\d+)\s*\/\s*(\d+)(?:\((.+?)\))?$/i) : null;
+        if (barNormal && !/^(status|skill)$/i.test(barNormal[1])) {
+            const type = barNormal[1].toLowerCase();
+            const owner = _uoB ? _uoName : barNormal[2].trim();
+            const current = parseInt(barNormal[3]);
+            const max = parseInt(barNormal[4]);
+            const label = barNormal[5]?.trim() || null;
             if (!rpg.bars[owner]) rpg.bars[owner] = {};
             rpg.bars[owner][type] = label ? [current, max, label] : [current, max];
             return;
         }
-        // status:N01 Name=效果1/效果2
+        if (barUo && !/^(status|skill)$/i.test(barUo[1])) {
+            const type = barUo[1].toLowerCase();
+            const current = parseInt(barUo[2]);
+            const max = parseInt(barUo[3]);
+            const label = barUo[4]?.trim() || null;
+            if (!rpg.bars[_uoName]) rpg.bars[_uoName] = {};
+            rpg.bars[_uoName][type] = label ? [current, max, label] : [current, max];
+            return;
+        }
+        // status
         if (line.startsWith('status:')) {
             const str = line.substring(7).trim();
             const eq = str.indexOf('=');
-            if (eq > 0) {
-                const owner = str.substring(0, eq).trim();
+            if (_uoB && eq < 0) {
+                rpg.status[_uoName] = (!str || /^(正常|无|none)$/i.test(str))
+                    ? [] : str.split('/').map(s => s.trim()).filter(Boolean);
+            } else if (eq > 0) {
+                const owner = _uoB ? _uoName : str.substring(0, eq).trim();
                 const val = str.substring(eq + 1).trim();
                 rpg.status[owner] = (!val || /^(正常|无|none)$/i.test(val))
                     ? [] : val.split('/').map(s => s.trim()).filter(Boolean);
             }
             return;
         }
-        // skill:N01 Name|技能名|等级|效果
+        // skill
         if (line.startsWith('skill:')) {
             const parts = line.substring(6).trim().split('|').map(s => s.trim());
-            if (parts.length >= 2) {
+            if (_uoS && parts.length >= 1) {
+                rpg.skills.push({ owner: _uoName, name: parts[0], level: parts[1] || '', desc: parts[2] || '' });
+            } else if (parts.length >= 2) {
                 rpg.skills.push({ owner: parts[0], name: parts[1], level: parts[2] || '', desc: parts[3] || '' });
             }
             return;
         }
-        // skill-:N01 Name|技能名
+        // skill-
         if (line.startsWith('skill-:')) {
             const parts = line.substring(7).trim().split('|').map(s => s.trim());
-            if (parts.length >= 2) {
+            if (_uoS && parts.length >= 1) {
+                rpg.removedSkills.push({ owner: _uoName, name: parts[0] });
+            } else if (parts.length >= 2) {
                 rpg.removedSkills.push({ owner: parts[0], name: parts[1] });
             }
             return;
         }
-        // equip:归属|格位|装备名|属性1=值,属性2=值
+        // equip
         if (line.startsWith('equip:')) {
             const parts = line.substring(6).trim().split('|').map(s => s.trim());
-            if (parts.length >= 3) {
-                const owner = parts[0], slot = parts[1], itemName = parts[2];
+            const minParts = _uoE ? 2 : 3;
+            if (parts.length >= minParts) {
+                const owner = _uoE ? _uoName : parts[0];
+                const slot = _uoE ? parts[0] : parts[1];
+                const itemName = _uoE ? parts[1] : parts[2];
+                const attrPart = _uoE ? parts[2] : parts[3];
                 const attrs = {};
-                if (parts[3]) {
-                    for (const kv of parts[3].split(',')) {
+                if (attrPart) {
+                    for (const kv of attrPart.split(',')) {
                         const m = kv.trim().match(/^(.+?)=(-?\d+)$/);
                         if (m) attrs[m[1].trim()] = parseInt(m[2]);
                     }
@@ -1604,19 +1658,31 @@ class HoraeManager {
             }
             return;
         }
-        // unequip:归属|格位|装备名
+        // unequip
         if (line.startsWith('unequip:')) {
             const parts = line.substring(8).trim().split('|').map(s => s.trim());
-            if (parts.length >= 3) {
+            const minParts = _uoE ? 2 : 3;
+            if (parts.length >= minParts) {
                 if (!rpg.unequip) rpg.unequip = [];
-                rpg.unequip.push({ owner: parts[0], slot: parts[1], name: parts[2] });
+                if (_uoE) {
+                    rpg.unequip.push({ owner: _uoName, slot: parts[0], name: parts[1] });
+                } else {
+                    rpg.unequip.push({ owner: parts[0], slot: parts[1], name: parts[2] });
+                }
             }
             return;
         }
-        // rep:归属|声望名=值
+        // rep
         if (line.startsWith('rep:')) {
             const parts = line.substring(4).trim().split('|').map(s => s.trim());
-            if (parts.length >= 2) {
+            if (_uoR && parts.length >= 1) {
+                const kv = parts[0].match(/^(.+?)=(-?\d+)$/);
+                if (kv) {
+                    if (!rpg.reputation) rpg.reputation = {};
+                    if (!rpg.reputation[_uoName]) rpg.reputation[_uoName] = {};
+                    rpg.reputation[_uoName][kv[1].trim()] = parseInt(kv[2]);
+                }
+            } else if (parts.length >= 2) {
                 const owner = parts[0];
                 const kv = parts[1].match(/^(.+?)=(-?\d+)$/);
                 if (kv) {
@@ -1627,39 +1693,64 @@ class HoraeManager {
             }
             return;
         }
-        // level:归属=等级
+        // level
         if (line.startsWith('level:')) {
             const str = line.substring(6).trim();
-            const eq = str.indexOf('=');
-            if (eq > 0) {
-                const owner = str.substring(0, eq).trim();
-                const val = parseInt(str.substring(eq + 1).trim());
+            if (_uoL) {
+                const val = parseInt(str);
                 if (!isNaN(val)) {
                     if (!rpg.levels) rpg.levels = {};
-                    rpg.levels[owner] = val;
+                    rpg.levels[_uoName] = val;
+                }
+            } else {
+                const eq = str.indexOf('=');
+                if (eq > 0) {
+                    const owner = str.substring(0, eq).trim();
+                    const val = parseInt(str.substring(eq + 1).trim());
+                    if (!isNaN(val)) {
+                        if (!rpg.levels) rpg.levels = {};
+                        rpg.levels[owner] = val;
+                    }
                 }
             }
             return;
         }
-        // xp:归属=当前/所需
+        // xp
         if (line.startsWith('xp:')) {
             const str = line.substring(3).trim();
-            const eq = str.indexOf('=');
-            if (eq > 0) {
-                const owner = str.substring(0, eq).trim();
-                const valStr = str.substring(eq + 1).trim();
-                const m = valStr.match(/^(\d+)\s*\/\s*(\d+)$/);
+            if (_uoL) {
+                const m = str.match(/^(\d+)\s*\/\s*(\d+)$/);
                 if (m) {
                     if (!rpg.xp) rpg.xp = {};
-                    rpg.xp[owner] = [parseInt(m[1]), parseInt(m[2])];
+                    rpg.xp[_uoName] = [parseInt(m[1]), parseInt(m[2])];
+                }
+            } else {
+                const eq = str.indexOf('=');
+                if (eq > 0) {
+                    const owner = str.substring(0, eq).trim();
+                    const valStr = str.substring(eq + 1).trim();
+                    const m = valStr.match(/^(\d+)\s*\/\s*(\d+)$/);
+                    if (m) {
+                        if (!rpg.xp) rpg.xp = {};
+                        rpg.xp[owner] = [parseInt(m[1]), parseInt(m[2])];
+                    }
                 }
             }
             return;
         }
-        // currency:归属|币名=±值 或 currency:归属|币名=值
+        // currency
         if (line.startsWith('currency:')) {
             const parts = line.substring(9).trim().split('|').map(s => s.trim());
-            if (parts.length >= 2) {
+            if (_uoC && parts.length >= 1) {
+                const kvStr = parts.length >= 2 ? parts[1] : parts[0];
+                const kv = kvStr.match(/^(.+?)=([+-]?\d+)$/);
+                if (kv) {
+                    if (!rpg.currency) rpg.currency = [];
+                    const rawVal = kv[2];
+                    const isDelta = rawVal.startsWith('+') || rawVal.startsWith('-');
+                    rpg.currency.push({ owner: _uoName, name: kv[1].trim(), value: parseInt(rawVal), isDelta });
+                }
+            } else if (parts.length >= 2) {
                 const owner = parts[0];
                 const kv = parts[1].match(/^(.+?)=([+-]?\d+)$/);
                 if (kv) {
@@ -1671,13 +1762,20 @@ class HoraeManager {
             }
             return;
         }
-        // attr:N01 Name|key=val|key=val...
+        // attr
         if (line.startsWith('attr:')) {
             const parts = line.substring(5).trim().split('|').map(s => s.trim());
-            if (parts.length >= 2) {
-                const owner = parts[0];
+            if (parts.length >= 1) {
+                let owner, startIdx;
+                if (_uoA) {
+                    owner = _uoName;
+                    startIdx = 0;
+                } else {
+                    owner = parts[0];
+                    startIdx = 1;
+                }
                 const vals = {};
-                for (let i = 1; i < parts.length; i++) {
+                for (let i = startIdx; i < parts.length; i++) {
                     const kv = parts[i].match(/^(\w+)=(\d+)$/);
                     if (kv) vals[kv[1].toLowerCase()] = parseInt(kv[2]);
                 }
@@ -1745,18 +1843,23 @@ class HoraeManager {
         if (!first.horae_meta.rpg) first.horae_meta.rpg = { bars: {}, status: {}, skills: {} };
         const rpg = first.horae_meta.rpg;
 
+        const _mUN = this.context?.name1 || '';
+
         for (const [raw, barData] of Object.entries(changes.bars || {})) {
             const owner = this._resolveRpgOwner(raw);
+            if (this.settings?.rpgBarsUserOnly && owner !== _mUN) continue;
             if (!rpg.bars[owner]) rpg.bars[owner] = {};
             Object.assign(rpg.bars[owner], barData);
         }
         for (const [raw, effects] of Object.entries(changes.status || {})) {
             const owner = this._resolveRpgOwner(raw);
+            if (this.settings?.rpgBarsUserOnly && owner !== _mUN) continue;
             if (!rpg.status) rpg.status = {};
             rpg.status[owner] = effects;
         }
         for (const sk of (changes.skills || [])) {
             const owner = this._resolveRpgOwner(sk.owner);
+            if (this.settings?.rpgSkillsUserOnly && owner !== _mUN) continue;
             if (!rpg.skills[owner]) rpg.skills[owner] = [];
             const idx = rpg.skills[owner].findIndex(s => s.name === sk.name);
             if (idx >= 0) {
@@ -1768,6 +1871,7 @@ class HoraeManager {
         }
         for (const sk of (changes.removedSkills || [])) {
             const owner = this._resolveRpgOwner(sk.owner);
+            if (this.settings?.rpgSkillsUserOnly && owner !== _mUN) continue;
             if (rpg.skills[owner]) {
                 rpg.skills[owner] = rpg.skills[owner].filter(s => s.name !== sk.name);
             }
@@ -1775,6 +1879,7 @@ class HoraeManager {
         // 多维属性
         for (const [raw, vals] of Object.entries(changes.attributes || {})) {
             const owner = this._resolveRpgOwner(raw);
+            if (this.settings?.rpgAttrsUserOnly && owner !== _mUN) continue;
             if (!rpg.attributes) rpg.attributes = {};
             rpg.attributes[owner] = { ...(rpg.attributes[owner] || {}), ...vals };
         }
@@ -1812,6 +1917,7 @@ class HoraeManager {
             };
             for (const u of (changes.unequip || [])) {
                 const owner = this._resolveRpgOwner(u.owner);
+                if (this.settings?.rpgEquipmentUserOnly && owner !== _mUN) continue;
                 if (!rpg.equipment[owner]?.[u.slot]) continue;
                 const removed = rpg.equipment[owner][u.slot].find(e => e.name === u.name);
                 rpg.equipment[owner][u.slot] = rpg.equipment[owner][u.slot].filter(e => e.name !== u.name);
@@ -1822,6 +1928,7 @@ class HoraeManager {
             for (const eq of (changes.equipment || [])) {
                 const slotName = eq.slot;
                 const owner = this._resolveRpgOwner(eq.owner);
+                if (this.settings?.rpgEquipmentUserOnly && owner !== _mUN) continue;
                 const { valid, deleted, maxMap } = _getOwnerSlots(owner);
                 if (valid.size > 0 && (!valid.has(slotName) || deleted.has(slotName))) continue;
                 if (!rpg.equipment[owner]) rpg.equipment[owner] = {};
@@ -1848,6 +1955,7 @@ class HoraeManager {
             const deleted = new Set(rpg.reputationConfig._deletedCategories || []);
             for (const [raw, cats] of Object.entries(changes.reputation)) {
                 const owner = this._resolveRpgOwner(raw);
+                if (this.settings?.rpgReputationUserOnly && owner !== _mUN) continue;
                 if (!rpg.reputation[owner]) rpg.reputation[owner] = {};
                 for (const [catName, val] of Object.entries(cats)) {
                     if (!validNames.has(catName) || deleted.has(catName)) continue;
@@ -1864,12 +1972,14 @@ class HoraeManager {
         // 等级
         for (const [raw, val] of Object.entries(changes.levels || {})) {
             const owner = this._resolveRpgOwner(raw);
+            if (this.settings?.rpgLevelUserOnly && owner !== _mUN) continue;
             if (!rpg.levels) rpg.levels = {};
             rpg.levels[owner] = val;
         }
         // 经验值
         for (const [raw, val] of Object.entries(changes.xp || {})) {
             const owner = this._resolveRpgOwner(raw);
+            if (this.settings?.rpgLevelUserOnly && owner !== _mUN) continue;
             if (!rpg.xp) rpg.xp = {};
             rpg.xp[owner] = val;
         }
@@ -1880,6 +1990,7 @@ class HoraeManager {
             const validDenoms = new Set((rpg.currencyConfig.denominations || []).map(d => d.name));
             for (const c of changes.currency) {
                 const owner = this._resolveRpgOwner(c.owner);
+                if (this.settings?.rpgCurrencyUserOnly && owner !== _mUN) continue;
                 if (!validDenoms.has(c.name)) continue;
                 if (!rpg.currency[owner]) rpg.currency[owner] = {};
                 if (c.isDelta) {
@@ -3414,32 +3525,67 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
         const sendSh = !!this.settings?.sendRpgStronghold;
         if (!sendBars && !sendSkills && !sendAttrs && !sendEq && !sendRep && !sendLvl && !sendCur && !sendSh) return '';
         const userName = this.context?.name1 || '主角';
+        const uoBars = !!this.settings?.rpgBarsUserOnly;
+        const uoSkills = !!this.settings?.rpgSkillsUserOnly;
+        const uoAttrs = !!this.settings?.rpgAttrsUserOnly;
+        const uoEq = !!this.settings?.rpgEquipmentUserOnly;
+        const uoRep = !!this.settings?.rpgReputationUserOnly;
+        const uoLvl = !!this.settings?.rpgLevelUserOnly;
+        const uoCur = !!this.settings?.rpgCurrencyUserOnly;
+        const anyUo = uoBars || uoSkills || uoAttrs || uoEq || uoRep || uoLvl || uoCur;
+        const allUo = uoBars && uoSkills && uoAttrs && uoEq && uoRep && uoLvl && uoCur;
         const barCfg = this.settings?.rpgBarConfig || [
             { key: 'hp', name: 'HP' }, { key: 'mp', name: 'MP' }, { key: 'sp', name: 'SP' }
         ];
         const attrCfg = this.settings?.rpgAttributeConfig || [];
-        let p = `═══ 【RPG】 ═══\n你的回复末尾必须包含<horaerpg>标签。归属格式同NPC编号：N编号 全名，${userName}直接写名字不加N。\n`;
+        let p = `═══ 【RPG】 ═══\n你的回复末尾必须包含<horaerpg>标签。`;
+        if (allUo) {
+            p += `所有RPG数据仅追踪${userName}一人，格式中不含归属字段。禁止为NPC输出任何RPG行。\n`;
+        } else if (anyUo) {
+            p += `归属格式同NPC编号：N编号 全名，${userName}直接写名字不加N。部分模块仅追踪${userName}（以下会标注）。\n`;
+        } else {
+            p += `归属格式同NPC编号：N编号 全名，${userName}直接写名字不加N。\n`;
+        }
         if (sendBars) {
             p += `\n【属性条——每回合必写，缺少=不合格！】\n`;
-            p += `必须为 characters: 中每个在场角色输出全部属性条和状态：\n`;
-            for (const bar of barCfg) {
-                p += `  ✅ ${bar.key}:归属=当前/最大(${bar.name})  ← 首次必须标注显示名\n`;
+            if (uoBars) {
+                p += `仅输出${userName}的属性条和状态：\n`;
+                for (const bar of barCfg) {
+                    p += `  ✅ ${bar.key}:当前/最大(${bar.name})  ← 首次必须标注显示名\n`;
+                }
+                p += `  ✅ status:效果1/效果2  ← 无异常写 正常\n`;
+            } else {
+                p += `必须为 characters: 中每个在场角色输出全部属性条和状态：\n`;
+                for (const bar of barCfg) {
+                    p += `  ✅ ${bar.key}:归属=当前/最大(${bar.name})  ← 首次必须标注显示名\n`;
+                }
+                p += `  ✅ status:归属=效果1/效果2  ← 无异常写 =正常\n`;
             }
-            p += `  ✅ status:归属=效果1/效果2  ← 无异常写 =正常\n`;
             p += `规则：\n`;
             p += `  - 战斗/受伤/施法/消耗 → 合理扣减；恢复/休息 → 合理回增\n`;
-            p += `  - 每个在场角色的每个属性条都必须写，漏写任何一人=不合格\n`;
+            if (!uoBars) {
+                p += `  - 每个在场角色的每个属性条都必须写，漏写任何一人=不合格\n`;
+            }
             p += `  - 即使本回合数值无变化，也必须写出当前值\n`;
         }
         if (sendAttrs && attrCfg.length > 0) {
             p += `\n【多维属性】仅首次登场或属性变化时写，无变化可省略\n`;
-            p += `  attr:归属|${attrCfg.map(a => `${a.key}=数值`).join('|')}\n`;
+            if (uoAttrs) {
+                p += `  attr:${attrCfg.map(a => `${a.key}=数值`).join('|')}\n`;
+            } else {
+                p += `  attr:归属|${attrCfg.map(a => `${a.key}=数值`).join('|')}\n`;
+            }
             p += `  数值范围0-100。属性含义：${attrCfg.map(a => `${a.key}(${a.name})`).join('、')}\n`;
         }
         if (sendSkills) {
             p += `\n【技能】仅习得/升级/失去时写，无变化可省略\n`;
-            p += `  skill:归属|技能名|等级|效果描述\n`;
-            p += `  skill-:归属|技能名\n`;
+            if (uoSkills) {
+                p += `  skill:技能名|等级|效果描述\n`;
+                p += `  skill-:技能名\n`;
+            } else {
+                p += `  skill:归属|技能名|等级|效果描述\n`;
+                p += `  skill-:归属|技能名\n`;
+            }
         }
         if (sendEq) {
             const eqCfg = this._getRpgEquipmentConfig();
@@ -3448,13 +3594,23 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
             const hasAnySlots = Object.values(perChar).some(c => c.slots?.length > 0);
             if (hasAnySlots) {
                 p += `\n【装备】角色穿戴/卸下装备时写，无变化可省略\n`;
-                p += `  equip:归属|格位名|装备名|属性1=值,属性2=值\n`;
-                p += `  unequip:归属|格位名|装备名\n`;
-                for (const [owner, cfg] of Object.entries(perChar)) {
-                    if (!cfg.slots?.length) continue;
-                    if (present.size > 0 && !present.has(owner)) continue;
-                    const slotNames = cfg.slots.map(s => `${s.name}(×${s.maxCount ?? 1})`).join('、');
-                    p += `  ${owner} 格位: ${slotNames}\n`;
+                if (uoEq) {
+                    p += `  equip:格位名|装备名|属性1=值,属性2=值\n`;
+                    p += `  unequip:格位名|装备名\n`;
+                    const userCfg = perChar[userName];
+                    if (userCfg?.slots?.length) {
+                        const slotNames = userCfg.slots.map(s => `${s.name}(×${s.maxCount ?? 1})`).join('、');
+                        p += `  格位: ${slotNames}\n`;
+                    }
+                } else {
+                    p += `  equip:归属|格位名|装备名|属性1=值,属性2=值\n`;
+                    p += `  unequip:归属|格位名|装备名\n`;
+                    for (const [owner, cfg] of Object.entries(perChar)) {
+                        if (!cfg.slots?.length) continue;
+                        if (present.size > 0 && !present.has(owner)) continue;
+                        const slotNames = cfg.slots.map(s => `${s.name}(×${s.maxCount ?? 1})`).join('、');
+                        p += `  ${owner} 格位: ${slotNames}\n`;
+                    }
                 }
                 p += `  ⚠ 每个角色只能使用其已注册的格位。属性值为整数。\n`;
                 p += `  ⚠ 普通衣物非赋魔或特殊材料不应有高属性值。\n`;
@@ -3465,15 +3621,24 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
             if (repConfig.categories.length > 0) {
                 const catNames = repConfig.categories.map(c => c.name).join('、');
                 p += `\n【声望】仅声望变化时写，无变化可省略\n`;
-                p += `  rep:归属|声望分类名=当前值\n`;
+                if (uoRep) {
+                    p += `  rep:声望分类名=当前值\n`;
+                } else {
+                    p += `  rep:归属|声望分类名=当前值\n`;
+                }
                 p += `  已注册的声望分类: ${catNames}\n`;
                 p += `  ⚠ 禁止创造新的声望分类。只允许使用上述已注册的分类名。\n`;
             }
         }
         if (sendLvl) {
             p += `\n【等级与经验值】仅升级/降级或经验变化时写，无变化可省略\n`;
-            p += `  level:归属=等级数值\n`;
-            p += `  xp:归属=当前经验/升级所需\n`;
+            if (uoLvl) {
+                p += `  level:等级数值\n`;
+                p += `  xp:当前经验/升级所需\n`;
+            } else {
+                p += `  level:归属=等级数值\n`;
+                p += `  xp:归属=当前经验/升级所需\n`;
+            }
             p += `  经验值获取参考：\n`;
             p += `  - 与角色等级相近或更强的挑战：获得较多经验(10~50+)\n`;
             p += `  - 等级差 ≥10 的低级挑战：仅得 1 点经验\n`;
@@ -3485,14 +3650,25 @@ event:重要程度|事件简述（30-50字，重要程度：一般/重要/关键
             if (curConfig.denominations.length > 0) {
                 const denomNames = curConfig.denominations.map(d => d.name).join('、');
                 p += `\n【货币——发生交易/拾取/消费时必写！】\n`;
-                p += `格式: currency:归属|币名=±变化量\n`;
-                p += `示例:\n`;
-                p += `  currency:${userName}|${curConfig.denominations[0].name}=+10\n`;
-                p += `  currency:${userName}|${curConfig.denominations[0].name}=-3\n`;
-                if (curConfig.denominations.length > 1) {
-                    p += `  currency:${userName}|${curConfig.denominations[1].name}=+50\n`;
+                if (uoCur) {
+                    p += `格式: currency:币名=±变化量\n`;
+                    p += `示例:\n`;
+                    p += `  currency:${curConfig.denominations[0].name}=+10\n`;
+                    p += `  currency:${curConfig.denominations[0].name}=-3\n`;
+                    if (curConfig.denominations.length > 1) {
+                        p += `  currency:${curConfig.denominations[1].name}=+50\n`;
+                    }
+                    p += `也可写绝对值: currency:币名=数量\n`;
+                } else {
+                    p += `格式: currency:归属|币名=±变化量\n`;
+                    p += `示例:\n`;
+                    p += `  currency:${userName}|${curConfig.denominations[0].name}=+10\n`;
+                    p += `  currency:${userName}|${curConfig.denominations[0].name}=-3\n`;
+                    if (curConfig.denominations.length > 1) {
+                        p += `  currency:${userName}|${curConfig.denominations[1].name}=+50\n`;
+                    }
+                    p += `也可写绝对值: currency:归属|币名=数量\n`;
                 }
-                p += `也可写绝对值: currency:归属|币名=数量\n`;
                 p += `已注册币种: ${denomNames}\n`;
                 p += `⚠ 禁止使用未注册的币种名。任何涉及金钱的行为（买卖/拾取/奖赏/偷窃）都必须写 currency 行。\n`;
             }

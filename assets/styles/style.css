@@ -5504,6 +5504,15 @@ body .horae-context-menu {
     .horae-loc-actions,
     .horae-agenda-delete,
     .horae-item-lock-btn { opacity: 1; }
+
+    /* 提示词预设按钮区手机端自动换行 */
+    .horae-prompt-presets-actions {
+        flex-wrap: wrap;
+        row-gap: 6px;
+    }
+    .horae-prompt-presets-actions .horae-prompt-presets-sep {
+        display: none;
+    }
 }
 
 /* ── 提示词预设工具栏 ── */

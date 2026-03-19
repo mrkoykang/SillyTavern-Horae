@@ -10,7 +10,7 @@
                 <i class="fa-regular fa-clock"></i>
                 Horae 时光记忆
             </div>
-            <span class="horae-version">v1.10.0</span>
+            <span class="horae-version">v1.10.1</span>
         </div>
         
         <!-- 标签页导航 -->
@@ -426,6 +426,21 @@
             
             <!-- 设置页 -->
             <div id="horae-tab-settings" class="horae-tab-content">
+                <div class="horae-settings-section" style="margin-bottom:12px;">
+                    <div class="horae-section-header">
+                        <i class="fa-solid fa-sliders"></i>
+                        Horae 配置档
+                    </div>
+                    <span class="horae-setting-hint" style="margin-bottom:8px;">
+                        <i class="fa-solid fa-circle-info"></i>
+                        导出当前所有开关、仅限主角设置、自定义提示词、RPG配置等为文件（不含自动摘要与向量记忆设置）。角色卡作者可将配置随卡分享，玩家导入后一键到位。
+                    </span>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                        <button id="horae-settings-export" class="horae-rpg-btn-sm" title="导出全局配置"><i class="fa-solid fa-file-export"></i> 导出配置</button>
+                        <button id="horae-settings-import" class="horae-rpg-btn-sm" title="导入配置文件"><i class="fa-solid fa-file-import"></i> 导入配置</button>
+                        <button id="horae-settings-reset" class="horae-rpg-btn-sm" title="恢复所有设置为默认值" style="color:#ef4444;"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
+                    </div>
+                </div>
                 <div class="horae-settings-section">
                     <div class="horae-section-header">
                         <i class="fa-solid fa-toggle-on"></i>
@@ -669,33 +684,66 @@
                         </label>
                         <span class="horae-setting-sub-hint">启用后，AI 会在 &lt;horaerpg&gt; 标签中输出角色属性条（HP/MP/SP）和技能变化。关闭时不注入提示词、不消耗 Token。</span>
                         <div id="horae-rpg-sub-options" style="display:none; margin-top:6px; padding-left:18px;">
+                            <label style="display:block;margin-bottom:8px;padding:4px 8px;background:rgba(139,92,246,0.1);border-radius:6px;border:1px solid rgba(139,92,246,0.25);">
+                                <input type="checkbox" id="horae-setting-rpg-user-only">
+                                <strong>仅限主角模式</strong>
+                                <span style="font-size:0.85em;opacity:0.8;">— 一键切换：所有RPG模块只追踪USER（也可单独设置各模块）</span>
+                            </label>
                             <label style="display:block;margin-bottom:4px;">
                                 <input type="checkbox" id="horae-setting-rpg-bars" checked>
                                 发送属性条（HP/MP/SP/状态异常）
+                            </label>
+                            <label class="horae-rpg-sub-toggle" style="display:none;margin-bottom:4px;margin-left:22px;font-size:0.9em;">
+                                <input type="checkbox" id="horae-setting-rpg-bars-uo">
+                                ↳ 仅限主角
                             </label>
                             <label style="display:block;margin-bottom:4px;">
                                 <input type="checkbox" id="horae-setting-rpg-attrs" checked>
                                 发送属性面板（多维属性）
                             </label>
+                            <label class="horae-rpg-sub-toggle" style="display:none;margin-bottom:4px;margin-left:22px;font-size:0.9em;">
+                                <input type="checkbox" id="horae-setting-rpg-attrs-uo">
+                                ↳ 仅限主角
+                            </label>
                             <label style="display:block;margin-bottom:4px;">
                                 <input type="checkbox" id="horae-setting-rpg-skills" checked>
                                 发送技能列表
+                            </label>
+                            <label class="horae-rpg-sub-toggle" style="display:none;margin-bottom:4px;margin-left:22px;font-size:0.9em;">
+                                <input type="checkbox" id="horae-setting-rpg-skills-uo">
+                                ↳ 仅限主角
                             </label>
                             <label style="display:block;margin-bottom:4px;">
                                 <input type="checkbox" id="horae-setting-rpg-reputation">
                                 声望系统（自定义势力声望追踪）
                             </label>
+                            <label class="horae-rpg-sub-toggle" style="display:none;margin-bottom:4px;margin-left:22px;font-size:0.9em;">
+                                <input type="checkbox" id="horae-setting-rpg-reputation-uo">
+                                ↳ 仅限主角
+                            </label>
                             <label style="display:block;margin-bottom:4px;">
                                 <input type="checkbox" id="horae-setting-rpg-equipment">
                                 装备栏（格位、属性值追踪）
+                            </label>
+                            <label class="horae-rpg-sub-toggle" style="display:none;margin-bottom:4px;margin-left:22px;font-size:0.9em;">
+                                <input type="checkbox" id="horae-setting-rpg-equipment-uo">
+                                ↳ 仅限主角
                             </label>
                             <label style="display:block;margin-bottom:4px;">
                                 <input type="checkbox" id="horae-setting-rpg-level">
                                 等级 / 经验值
                             </label>
+                            <label class="horae-rpg-sub-toggle" style="display:none;margin-bottom:4px;margin-left:22px;font-size:0.9em;">
+                                <input type="checkbox" id="horae-setting-rpg-level-uo">
+                                ↳ 仅限主角
+                            </label>
                             <label style="display:block;margin-bottom:4px;">
                                 <input type="checkbox" id="horae-setting-rpg-currency">
                                 货币系统（自定义币种与兑换比率）
+                            </label>
+                            <label class="horae-rpg-sub-toggle" style="display:none;margin-bottom:4px;margin-left:22px;font-size:0.9em;">
+                                <input type="checkbox" id="horae-setting-rpg-currency-uo">
+                                ↳ 仅限主角
                             </label>
                             <label style="display:block;margin-bottom:4px;">
                                 <input type="checkbox" id="horae-setting-rpg-stronghold">
@@ -1074,14 +1122,14 @@
                             <select id="horae-prompt-preset-select" title="提示词预设"></select>
                             <button id="horae-prompt-preset-load" class="horae-rpg-btn-sm" title="加载选中预设"><i class="fa-solid fa-download"></i></button>
                         </div>
-                        <div class="horae-prompt-presets-bar" style="margin-top:-6px;justify-content:flex-end;">
+                        <div class="horae-prompt-presets-bar horae-prompt-presets-actions" style="margin-top:-6px;justify-content:flex-end;flex-wrap:wrap;row-gap:4px;">
                             <button id="horae-prompt-preset-save" class="horae-rpg-btn-sm" title="保存当前提示词到选中预设"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
                             <button id="horae-prompt-preset-new" class="horae-rpg-btn-sm" title="另存为新预设"><i class="fa-solid fa-plus"></i> 新建</button>
                             <button id="horae-prompt-preset-delete" class="horae-rpg-btn-sm" title="删除选中预设"><i class="fa-solid fa-trash"></i> 删除</button>
-                            <span style="border-left:1px solid var(--horae-border);height:16px;margin:0 2px;opacity:.3"></span>
+                            <span class="horae-prompt-presets-sep" style="border-left:1px solid var(--horae-border);height:16px;margin:0 2px;opacity:.3"></span>
                             <button id="horae-prompt-preset-export" class="horae-rpg-btn-sm" title="导出提示词为文件"><i class="fa-solid fa-file-export"></i> 导出</button>
                             <button id="horae-prompt-preset-import" class="horae-rpg-btn-sm" title="从文件导入提示词"><i class="fa-solid fa-file-import"></i> 导入</button>
-                            <span style="border-left:1px solid var(--horae-border);height:16px;margin:0 2px;opacity:.3"></span>
+                            <span class="horae-prompt-presets-sep" style="border-left:1px solid var(--horae-border);height:16px;margin:0 2px;opacity:.3"></span>
                             <button id="horae-prompt-reset-all" class="horae-rpg-btn-sm" title="全部恢复默认提示词" style="color:#ef4444;"><i class="fa-solid fa-rotate-left"></i> 全部重置</button>
                         </div>
                         
@@ -1257,7 +1305,7 @@
                 </div>
                 
                 <div class="horae-about">
-                    <p>Horae v1.10.0 | 作者: SenriYuki</p>
+                    <p>Horae v1.10.1 | 作者: SenriYuki</p>
                     <p>基于时间锚点的AI记忆增强系统</p>
                 </div>
             </div>
