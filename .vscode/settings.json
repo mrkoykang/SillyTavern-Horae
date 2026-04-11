@@ -1,0 +1,6 @@
+{
+    "ai-localizator.apiEndpoint": "https://api.cloudflare.com/client/v4/accounts/156142fb5ea59b163d36aea9bba795e9/ai/run/@cf/meta/m2m100-1.2b",
+    "ai-localizator.llm.maxTokens": 150000,
+    "ai-localizator.llm.modelName": "M2M-",
+    "commentTranslate.source": "Google"
+}
